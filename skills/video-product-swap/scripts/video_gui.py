@@ -24,8 +24,19 @@ from model_runner.runner import ModelRunner
 from secure_credentials import CredentialStoreError, SecureCredentialStore, read_env_values, redact
 
 
-SKILL_ROOT = Path(__file__).resolve().parents[1]
-PROJECT_ROOT = SKILL_ROOT.parents[1]
+def _configured_path(name: str, fallback: Path) -> Path:
+    value = os.environ.get(name, "").strip()
+    return Path(value).expanduser().resolve() if value else fallback.resolve()
+
+
+SKILL_ROOT = _configured_path(
+    "MATERIAL_UNIVERSE_VIDEO_SKILL_ROOT",
+    Path(__file__).resolve().parents[1],
+)
+PROJECT_ROOT = _configured_path(
+    "MATERIAL_UNIVERSE_WORKSPACE_ROOT",
+    SKILL_ROOT.parents[1],
+)
 GENERATE_SCRIPT = SKILL_ROOT / "scripts" / "generate_video.py"
 LOGO_PNG = SKILL_ROOT / "assets" / "material-universe-logo.png"
 LOGO_ICO = SKILL_ROOT / "assets" / "material-universe.ico"
@@ -1735,25 +1746,31 @@ class MaterialUniverseApp:
     def _run_command(
         self, command: list[str], cwd: Path, env: dict[str, str]
     ) -> tuple[int, dict[str, object], str]:
-        completed = subprocess.run(
-            command,
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            env=env,
-            creationflags=CREATE_NO_WINDOW,
-            check=False,
-        )
-        stdout, stderr = completed.stdout.strip(), completed.stderr.strip()
+        if getattr(sys, "frozen", False):
+            from portable_runtime import run_internal_command
+
+            return_code, stdout, stderr = run_internal_command(command, cwd, env)
+        else:
+            completed = subprocess.run(
+                command,
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+                creationflags=CREATE_NO_WINDOW,
+                check=False,
+            )
+            return_code = completed.returncode
+            stdout, stderr = completed.stdout.strip(), completed.stderr.strip()
         try:
             payload = json.loads(stdout) if stdout else {}
         except json.JSONDecodeError:
             payload = {"success": False, "error": stdout or "程序没有返回有效结果。"}
         if not isinstance(payload, dict):
             payload = {"success": False, "error": "程序返回的数据格式无法识别。"}
-        return completed.returncode, payload, stderr
+        return return_code, payload, stderr
 
     def _analyze(self, values: dict[str, object]) -> tuple[int, dict[str, object], str]:
         command = build_prompt_command(

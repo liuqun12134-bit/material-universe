@@ -24,6 +24,12 @@ python scripts/generate_video.py --list-models
 
 正式生成前可以使用 `--dry-run` 检查模型线路、输入、上传字段和请求结构。检查模式不会上传文件或提交付费任务。
 
+## 单文件发行版
+
+运行 `packaging/build_release.ps1` 可以在 `发行版` 文件夹生成单文件 `素材万象.exe`。成品已包含 Python、模型适配器、界面资源以及 FFmpeg、FFprobe、FFplay，目标 Windows 电脑不需要安装或配置这些组件。
+
+使用者首次打开后只需在“设置”中填写自己的提示词分析和视频服务 API Key。真实 Key 不参与打包，也不会提交到仓库。
+
 ## 凭据安全
 
 仓库只提供 `.env.example`，不包含任何真实 API Key。请在本机配置自己的凭据，不要把 `.env`、日志、生成视频或加密凭据文件提交到 Git。

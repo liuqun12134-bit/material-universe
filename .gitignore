@@ -26,10 +26,14 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
+.build/
+
+# Local packaged application output
+/发行版/*.exe
+/发行版/*-self-test.json
 
 # OS and editor files
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
-

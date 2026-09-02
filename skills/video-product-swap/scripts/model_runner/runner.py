@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -9,7 +10,10 @@ from .credentials import CredentialManager
 from .registry import ModelRegistry
 
 
-SKILL_ROOT = Path(__file__).resolve().parents[2]
+SKILL_ROOT = Path(
+    os.environ.get("MATERIAL_UNIVERSE_VIDEO_SKILL_ROOT", "")
+    or Path(__file__).resolve().parents[2]
+).expanduser().resolve()
 
 
 class ModelRunner:
