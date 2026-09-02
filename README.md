@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="skills/video-product-swap/assets/material-universe-logo.png" alt="素材万象 Logo" width="128">
+</p>
+
 # 素材万象
 
 素材万象是一套面向电商产品素材的本地 AI 工具，当前重点是视频换品工作流：产品图预处理、参考视频位置分析、固定提示词生成以及多服务商视频生成。
@@ -29,4 +33,3 @@ python scripts/generate_video.py --list-models
 ## 文档
 
 项目设计、决策和路线说明位于 `素材万象_MD文档包`。
-

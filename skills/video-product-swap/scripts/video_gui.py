@@ -12,10 +12,11 @@ import uuid
 from ctypes import wintypes
 from datetime import datetime
 from pathlib import Path
-from tkinter import END, BooleanVar, StringVar, filedialog, messagebox
+from tkinter import END, BooleanVar, StringVar, TclError, filedialog, messagebox
 from urllib.parse import urlparse
 
 import customtkinter as ctk
+from PIL import Image
 
 from gui_support import build_generate_command, build_prompt_command, references_for_swap
 from media_inspection import VideoInfo, image_thumbnail, probe_video, video_poster
@@ -26,6 +27,8 @@ from secure_credentials import CredentialStoreError, SecureCredentialStore, read
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = SKILL_ROOT.parents[1]
 GENERATE_SCRIPT = SKILL_ROOT / "scripts" / "generate_video.py"
+LOGO_PNG = SKILL_ROOT / "assets" / "material-universe-logo.png"
+LOGO_ICO = SKILL_ROOT / "assets" / "material-universe.ico"
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 PROCESS_SUSPEND_RESUME = 0x0800
 DEFAULT_PROMPT_BASE = "https://api.deepseek.com"
@@ -247,6 +250,7 @@ class MaterialUniverseApp:
         self.root.minsize(1080, 740)
         self.root.configure(fg_color=BG)
         self.root.option_add("*Font", ("Segoe UI", 10))
+        self._configure_window_icon()
 
         self.runner = ModelRunner(SKILL_ROOT)
         self.models = self.runner.list_models()
@@ -273,6 +277,7 @@ class MaterialUniverseApp:
         self.video_info: VideoInfo | None = None
         self.video_preview_ctk_image: ctk.CTkImage | None = None
         self.product_preview_ctk_image: ctk.CTkImage | None = None
+        self.brand_logo_image: ctk.CTkImage | None = None
         self.key_entries: list[ctk.CTkEntry] = []
         self.provider_vars: dict[str, dict[str, object]] = {}
 
@@ -321,6 +326,45 @@ class MaterialUniverseApp:
         ctk.set_appearance_mode("light")
         ctk.set_default_color_theme("blue")
 
+    def _configure_window_icon(self) -> None:
+        if not LOGO_ICO.is_file():
+            return
+        try:
+            self.root.iconbitmap(str(LOGO_ICO))
+        except (OSError, TclError):
+            pass
+
+    def _create_brand_mark(self, parent: ctk.CTkFrame) -> ctk.CTkLabel:
+        if LOGO_PNG.is_file():
+            try:
+                with Image.open(LOGO_PNG) as source:
+                    logo = source.convert("RGBA").copy()
+                self.brand_logo_image = ctk.CTkImage(
+                    light_image=logo,
+                    dark_image=logo,
+                    size=(42, 42),
+                )
+                return ctk.CTkLabel(
+                    parent,
+                    text="",
+                    image=self.brand_logo_image,
+                    width=42,
+                    height=42,
+                )
+            except (OSError, ValueError):
+                self.brand_logo_image = None
+
+        return ctk.CTkLabel(
+            parent,
+            text="万",
+            width=38,
+            height=38,
+            corner_radius=12,
+            fg_color=TEXT,
+            text_color="white",
+            font=("Segoe UI", 17, "bold"),
+        )
+
     def _build_ui(self) -> None:
         shell = ctk.CTkFrame(self.root, fg_color=BG, corner_radius=0)
         shell.pack(fill="both", expand=True)
@@ -335,16 +379,7 @@ class MaterialUniverseApp:
 
         brand = ctk.CTkFrame(sidebar, fg_color="transparent")
         brand.pack(fill="x", padx=24, pady=(28, 34))
-        mark = ctk.CTkLabel(
-            brand,
-            text="万",
-            width=38,
-            height=38,
-            corner_radius=12,
-            fg_color=TEXT,
-            text_color="white",
-            font=("Segoe UI", 17, "bold"),
-        )
+        mark = self._create_brand_mark(brand)
         mark.pack(side="left")
         ctk.CTkLabel(
             brand,
