@@ -1,0 +1,35 @@
+# Local credentials and secret stores
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+credentials.dat
+
+# Generated media and review artifacts
+output/
+.codex_video_review_*/
+generated_images/
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+
+# Local backups and runtime logs
+skill-legacy-backup/
+*.log
+
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+

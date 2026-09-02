@@ -1,0 +1,17 @@
+{
+  "providers": {
+    "deepseek": {
+      "default_api_base": "https://api.deepseek.com",
+      "api_base_env": "DEEPSEEK_API_BASE",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "submit_path": "chat/completions"
+    },
+    "kaiyuncode-images": {
+      "default_api_base": "https://kaiyuncode.com",
+      "api_base_env": "KAIYUNCODE_API_BASE",
+      "api_key_env": "KAIYUNCODE_API_KEY",
+      "submit_path": "v1/images/async/generations",
+      "poll_path": "v1/images/async/{task_id}"
+    }
+  }
+}

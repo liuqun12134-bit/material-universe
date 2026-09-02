@@ -1,0 +1,33 @@
+{
+  "defaults": {
+    "vision_analysis": "deepseek-v4-flash-vision-exp",
+    "image_generation": "seedream-5.0-pro"
+  },
+  "models": [
+    {
+      "id": "deepseek-v4-flash-vision-exp",
+      "api_model": "deepseek-v4-flash-vision-exp",
+      "aliases": ["deepseek-vision"],
+      "capability": "vision_analysis",
+      "provider": "deepseek",
+      "adapter": "deepseek-vision",
+      "input_summary": "一张本地产品图片，作为 data URI 多模态输入"
+    },
+    {
+      "id": "seedream-5.0-pro",
+      "api_model": "seedream-5.0-pro",
+      "aliases": ["seedream"],
+      "capability": "image_generation",
+      "provider": "kaiyuncode-images",
+      "adapter": "seedream-async",
+      "input_summary": "一张本地产品参考图和固定棚拍生成提示词",
+      "options": {
+        "reference_field": "image",
+        "reference_shape": "array",
+        "reference_encoding": "data_uri",
+        "default_size": "2048x2048",
+        "n": 1
+      }
+    }
+  ]
+}

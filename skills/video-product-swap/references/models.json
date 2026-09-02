@@ -1,0 +1,57 @@
+{
+  "models": [
+    {
+      "id": "wan3.0",
+      "api_model": "wan3.0",
+      "aliases": [],
+      "provider": "kaiyuncode",
+      "adapter": "wan3",
+      "input_summary": "至少一张图片；本地文件或公网 HTTPS 图片、视频、音频"
+    },
+    {
+      "id": "wan3.0-prime",
+      "api_model": "wan3.0-prime",
+      "aliases": [],
+      "provider": "kaiyuncode",
+      "adapter": "wan3",
+      "input_summary": "至少一张图片；本地文件或公网 HTTPS 图片、视频、音频"
+    },
+    {
+      "id": "wan3.0-video",
+      "api_model": "wan3.0-video",
+      "aliases": ["wan3"],
+      "provider": "kaiyuncode",
+      "adapter": "wan3",
+      "input_summary": "Wan3 视频参考模型；原视频加至少一张产品参考图"
+    },
+    {
+      "id": "wan3.0-video-prime",
+      "api_model": "wan3.0-video-prime",
+      "aliases": [],
+      "provider": "kaiyuncode",
+      "adapter": "wan3",
+      "input_summary": "至少一张图片；本地文件或公网 HTTPS 图片、视频、音频"
+    },
+    {
+      "id": "omni_video_edit",
+      "api_model": "omni_video_edit",
+      "aliases": ["omniflash", "omni-flash"],
+      "provider": "kaiyuncode",
+      "adapter": "omniflash",
+      "input_summary": "一个本地 MP4 源视频和至少一个公网 HTTPS 参考图"
+    },
+    {
+      "id": "wan-official-videoedit",
+      "api_model": "wan2.7-videoedit",
+      "aliases": ["wan-official", "wan2.7-videoedit"],
+      "provider": "dashscope",
+      "adapter": "dashscope_videoedit",
+      "input_summary": "Wan 官方 VideoEdit；一个本地或公网视频，加 1-4 张本地或公网参考图"
+    }
+  ],
+  "fallback": {
+    "provider": "kaiyuncode",
+    "adapter": "generic",
+    "input_summary": "兼容模式：本地文件或公网 HTTPS 图片、视频、音频"
+  }
+}

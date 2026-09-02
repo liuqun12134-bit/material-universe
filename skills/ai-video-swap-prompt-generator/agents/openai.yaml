@@ -1,0 +1,4 @@
+interface:
+  display_name: "AI 视频换品提示词生成器"
+  short_description: "识别视频中产品位置，并整理用户描述的大概体积关系"
+  default_prompt: "使用 $ai-video-swap-prompt-generator 识别参考视频中的产品位置，整理我提供的大概体积关系，并生成固定换品提示词。"

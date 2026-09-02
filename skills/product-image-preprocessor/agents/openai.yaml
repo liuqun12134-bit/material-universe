@@ -1,0 +1,4 @@
+interface:
+  display_name: "产品图片分析与预处理"
+  short_description: "检查产品图并生成无中文、多视角且一致的棚拍参考图片"
+  default_prompt: "使用 $product-image-preprocessor 检查这张产品图，必要时生成无中文多视角棚拍参考图。"

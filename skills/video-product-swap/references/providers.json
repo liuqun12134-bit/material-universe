@@ -1,0 +1,20 @@
+{
+  "providers": {
+    "kaiyuncode": {
+      "display_name": "Kaiyun 中转站",
+      "default_api_base": "https://kaiyuncode.com",
+      "api_base_env": "KAIYUNCODE_API_BASE",
+      "api_key_env": "KAIYUNCODE_API_KEY",
+      "legacy_api_base_env": "VIDEO_SWAP_API_BASE",
+      "legacy_api_key_env": "VIDEO_SWAP_API_KEY",
+      "submit_path": "v1/videos"
+    },
+    "dashscope": {
+      "display_name": "Wan 官方（DashScope）",
+      "default_api_base": "https://dashscope.aliyuncs.com/api/v1",
+      "api_base_env": "DASHSCOPE_API_BASE",
+      "api_key_env": "DASHSCOPE_API_KEY",
+      "submit_path": "services/aigc/video-generation/video-synthesis"
+    }
+  }
+}
