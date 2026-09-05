@@ -27,7 +27,7 @@ def build(project: Path, output: Path, version: str, repository: str) -> dict:
         original = original or source / relative
         if original.is_symlink():
             raise ValueError(f"Symlinks are not supported: {relative}")
-        data = original.read_bytes()
+        data = original.read_bytes().replace(b"\r\n", b"\n")
         files[relative] = data
         origins[relative] = {
             "source": original.relative_to(project).as_posix(),
