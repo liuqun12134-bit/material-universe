@@ -18,11 +18,6 @@ VIDEO_SKILL_ROOT = (
     if FROZEN
     else PROJECT_ROOT / "skills" / "video-product-swap"
 )
-PROMPT_SKILL_ROOT = (
-    BUNDLE_ROOT / "skills" / "ai-video-swap-prompt-generator"
-    if FROZEN
-    else PROJECT_ROOT / "skills" / "ai-video-swap-prompt-generator"
-)
 LOCAL_APP_DATA = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
 APP_DATA_ROOT = LOCAL_APP_DATA / "MaterialUniverse"
 WORKSPACE_ROOT = Path.home() / "Documents" / "素材万象" if FROZEN else PROJECT_ROOT
@@ -32,12 +27,10 @@ LOG_PATH = APP_DATA_ROOT / "素材万象启动错误.log"
 def _configure_runtime() -> None:
     os.environ["MATERIAL_UNIVERSE_VIDEO_SKILL_ROOT"] = str(VIDEO_SKILL_ROOT)
     os.environ["MATERIAL_UNIVERSE_WORKSPACE_ROOT"] = str(WORKSPACE_ROOT)
-    os.environ["AI_VIDEO_PROMPT_SKILL_ROOT"] = str(PROMPT_SKILL_ROOT)
     os.environ["PYTHONUTF8"] = "1"
 
     video_scripts = VIDEO_SKILL_ROOT / "scripts"
-    prompt_scripts = PROMPT_SKILL_ROOT / "scripts"
-    for path in (prompt_scripts, video_scripts):
+    for path in (video_scripts,):
         path_text = str(path)
         if path_text not in sys.path:
             sys.path.insert(0, path_text)
@@ -84,9 +77,9 @@ def _portable_self_test(output_path: Path) -> int:
         from PIL import Image
         import customtkinter as ctk
         import dashscope
-        import generate_swap_prompt
+        import prompt_engine
         import generate_video
-        from portable_runtime import run_internal_command
+        from model_runner.runner import ModelRunner
         import video_gui
 
         tools: dict[str, str] = {}
@@ -114,23 +107,7 @@ def _portable_self_test(output_path: Path) -> int:
         app = video_gui.MaterialUniverseApp(root)
         root.update_idletasks()
 
-        internal_command = [
-            sys.executable,
-            str(VIDEO_SKILL_ROOT / "scripts" / "generate_video.py"),
-            "--list-models",
-        ]
-        internal_code, internal_stdout, internal_stderr = run_internal_command(
-            internal_command,
-            VIDEO_SKILL_ROOT,
-            dict(os.environ),
-        )
-        internal_payload = json.loads(internal_stdout)
-        if internal_code != 0 or not internal_payload.get("success"):
-            raise RuntimeError(
-                internal_payload.get("error")
-                or internal_stderr
-                or "内置模型入口无法运行。"
-            )
+        internal_payload = {"success": True, "models": ModelRunner(VIDEO_SKILL_ROOT, values={}).list_models()}
 
         report.update(
             {
@@ -141,7 +118,7 @@ def _portable_self_test(output_path: Path) -> int:
                 "models": [item["model"] for item in app.models],
                 "dashscope_version": getattr(dashscope, "__version__", "unknown"),
                 "internal_entries": [
-                    generate_swap_prompt.__name__,
+                    prompt_engine.__name__,
                     generate_video.__name__,
                 ],
                 "internal_model_count": len(internal_payload.get("models", [])),

@@ -1,4 +1,4 @@
 interface:
-  display_name: "多模型视频调用"
-  short_description: "按不同模型规则调用视频生成接口"
-  default_prompt: "使用 $video-product-swap，按我选择的模型、参考文件和原始提示词生成视频。"
+  display_name: "视频调用与视频换品"
+  short_description: "通用模式自选模型和参数，换品模式用 DeepSeek 分析并自动调用 Wan3"
+  default_prompt: "使用 $video-product-swap 的视频换品模式，按我提供的原视频、产品图和尺寸关系生成换品视频。"

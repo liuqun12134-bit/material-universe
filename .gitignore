@@ -30,6 +30,10 @@ venv/
 
 # Local packaged application output
 /发行版/*.exe
+/发行版/历史版本/*.exe
+/发行版/版本记录.csv
+/发行版/当前版本.json
+/发行版/当前安装版.json
 /发行版/*-self-test.json
 
 # OS and editor files
@@ -37,3 +41,8 @@ venv/
 Thumbs.db
 .idea/
 .vscode/
+
+# Per-task recovery files and generated skill archives
+*.video-task.json*
+*.mp4.part
+/发行版/Agent-Skill/*.zip

@@ -5,6 +5,7 @@ import json
 import math
 import shutil
 import subprocess
+from fractions import Fraction
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -75,7 +76,7 @@ def probe_video(path: Path) -> VideoInfo:
             "-select_streams",
             "v:0",
             "-show_entries",
-            "stream=width,height:stream_tags=rotate:stream_side_data=rotation:format=duration",
+            "stream=width,height,sample_aspect_ratio:stream_tags=rotate:stream_side_data=rotation:format=duration",
             "-of",
             "json",
             str(path),
@@ -100,11 +101,19 @@ def probe_video(path: Path) -> VideoInfo:
                 rotation = int(side_data["rotation"])
             except (TypeError, ValueError):
                 pass
+    display_width, display_height = float(width), float(height)
+    try:
+        sample_ratio = float(Fraction(str(stream.get("sample_aspect_ratio", "1:1")).replace(":", "/")))
+        if sample_ratio > 0:
+            display_width *= sample_ratio
+    except (ValueError, ZeroDivisionError):
+        pass
     if abs(rotation) % 180 == 90:
         width, height = height, width
-    if duration <= 0 or width <= 0 or height <= 0:
+        display_width, display_height = display_height, display_width
+    if not math.isfinite(duration) or duration <= 0 or width <= 0 or height <= 0:
         raise RuntimeError("视频时长或宽高无效。")
-    return VideoInfo(duration, width, height, classify_aspect_ratio(width, height))
+    return VideoInfo(duration, width, height, classify_aspect_ratio(display_width, display_height))
 
 
 def video_poster(path: Path, size: tuple[int, int]) -> Image.Image:

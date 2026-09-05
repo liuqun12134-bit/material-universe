@@ -12,13 +12,15 @@ import uuid
 from ctypes import wintypes
 from datetime import datetime
 from pathlib import Path
-from tkinter import END, BooleanVar, StringVar, TclError, filedialog, messagebox
+from tkinter import END, BooleanVar, StringVar, TclError, Text, filedialog, messagebox
 from urllib.parse import urlparse
 
 import customtkinter as ctk
 from PIL import Image
 
-from gui_support import build_generate_command, build_prompt_command, references_for_swap
+from gui_support import references_for_swap
+from product_swap import ProductSwapWorkflow
+from model_runner.task_state import TaskRecord
 from media_inspection import VideoInfo, image_thumbnail, probe_video, video_poster
 from model_runner.runner import ModelRunner
 from secure_credentials import CredentialStoreError, SecureCredentialStore, read_env_values, redact
@@ -106,24 +108,6 @@ def set_process_suspended(process_id: int, suspended: bool) -> bool:
         kernel32.CloseHandle(handle)
 
 
-def locate_prompt_script() -> Path:
-    candidates: list[Path] = []
-    override = os.environ.get("AI_VIDEO_PROMPT_SKILL_ROOT", "").strip()
-    if override:
-        candidates.append(Path(override) / "scripts" / "generate_swap_prompt.py")
-    candidates.extend(
-        [
-            SKILL_ROOT.parent / "ai-video-swap-prompt-generator" / "scripts" / "generate_swap_prompt.py",
-            Path.home() / ".codex" / "skills" / "ai-video-swap-prompt-generator" / "scripts" / "generate_swap_prompt.py",
-        ]
-    )
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate.resolve()
-    raise FileNotFoundError(
-        "找不到提示词分析 Skill。请安装 ai-video-swap-prompt-generator，"
-        "或设置 AI_VIDEO_PROMPT_SKILL_ROOT。"
-    )
 
 
 class EmbeddedVideoPlayer:
@@ -263,11 +247,9 @@ class MaterialUniverseApp:
         self.root.option_add("*Font", ("Segoe UI", 10))
         self._configure_window_icon()
 
-        self.runner = ModelRunner(SKILL_ROOT)
+        self.runner = ModelRunner(SKILL_ROOT, values={})
         self.models = self.runner.list_models()
         self.model_map = {item["model"]: item for item in self.models}
-        self.prompt_script = locate_prompt_script()
-        self.prompt_skill_root = self.prompt_script.parents[1]
         self.store = SecureCredentialStore()
         try:
             self.saved_credentials = self.store.load()
@@ -291,6 +273,9 @@ class MaterialUniverseApp:
         self.brand_logo_image: ctk.CTkImage | None = None
         self.key_entries: list[ctk.CTkEntry] = []
         self.provider_vars: dict[str, dict[str, object]] = {}
+        self.current_page: str | None = None
+        self._source_load_token = ""
+        self._reference_load_token = ""
 
         self.model_var = StringVar(value=preferred)
         self.video_route_var = StringVar(value=VIDEO_ROUTE_LABELS[preferred])
@@ -464,13 +449,21 @@ class MaterialUniverseApp:
         )
 
     def _show_page(self, page: str) -> None:
+        if page == self.current_page:
+            return
         active, inactive = (self.editor_nav, self.api_nav) if page == "editor" else (
             self.api_nav,
             self.editor_nav,
         )
+        visible_tab, hidden_tab = (
+            (self.edit_tab, self.api_tab) if page == "editor" else (self.api_tab, self.edit_tab)
+        )
         active.configure(fg_color=SOFT_BLUE, text_color=BLUE)
         inactive.configure(fg_color="transparent", text_color=TEXT)
-        (self.edit_tab if page == "editor" else self.api_tab).tkraise()
+        hidden_tab.grid_remove()
+        visible_tab.grid()
+        visible_tab.tkraise()
+        self.current_page = page
 
     def _card(self, parent, title: str, subtitle: str = "") -> tuple[ctk.CTkFrame, ctk.CTkFrame]:
         card = ctk.CTkFrame(
@@ -523,216 +516,37 @@ class MaterialUniverseApp:
             show="●" if secret else "",
         )
 
-    def _build_edit_tab_legacy(self) -> None:
-        page = self.editor_page = ctk.CTkScrollableFrame(
-            self.edit_tab, fg_color=BG, corner_radius=0, scrollbar_button_color="#C7C7CC"
-        )
-        page.pack(fill="both", expand=True, padx=34, pady=24)
-        ctk.CTkLabel(
-            page,
-            text="AI 视频换品",
-            text_color=TEXT,
-            font=("Segoe UI", 28, "bold"),
-            anchor="w",
-        ).pack(anchor="w")
-        ctk.CTkLabel(
-            page,
-            text="导入素材，确认产品尺寸关系，然后一次完成分析与生成。",
-            text_color=MUTED,
-            font=("Segoe UI", 13),
-            anchor="w",
-        ).pack(anchor="w", pady=(4, 22))
-
-        _, settings = self._card(page, "输出设置", "选择模型、画面比例、时长与清晰度。")
-        settings.grid_columnconfigure((0, 1, 2, 3), weight=1, uniform="spec")
-        labels = ("视频模型", "画面比例", "视频秒数", "分辨率")
-        for column, label in enumerate(labels):
-            self._field_label(settings, label).grid(row=0, column=column, sticky="w", padx=(0, 12))
-        self.model_box = ctk.CTkComboBox(
-            settings,
-            variable=self.model_var,
-            values=[item["model"] for item in self.models],
-            height=40,
-            corner_radius=10,
-            border_color=BORDER,
-            button_color="#F0F0F2",
-            button_hover_color="#E5E5EA",
-            fg_color="#FBFBFD",
-            text_color=TEXT,
-            dropdown_fg_color=CARD,
-            command=lambda _value: self._update_model_help(),
-        )
-        self.model_box.grid(row=1, column=0, sticky="ew", padx=(0, 12), pady=(6, 0))
-        self.aspect_box = ctk.CTkOptionMenu(
-            settings,
-            variable=self.aspect_ratio_var,
-            values=["9:16", "16:9", "1:1", "4:3", "3:4"],
-            height=40,
-            corner_radius=10,
-            fg_color="#F0F0F2",
-            button_color="#E5E5EA",
-            button_hover_color="#D1D1D6",
-            text_color=TEXT,
-        )
-        self.aspect_box.grid(row=1, column=1, sticky="ew", padx=(0, 12), pady=(6, 0))
-        self.duration_spin = self._entry(settings, self.duration_var)
-        self.duration_spin.grid(row=1, column=2, sticky="ew", padx=(0, 12), pady=(6, 0))
-        self.resolution_box = ctk.CTkOptionMenu(
-            settings,
-            variable=self.resolution_var,
-            values=["480p", "720p", "1080p"],
-            height=40,
-            corner_radius=10,
-            fg_color="#F0F0F2",
-            button_color="#E5E5EA",
-            button_hover_color="#D1D1D6",
-            text_color=TEXT,
-        )
-        self.resolution_box.grid(row=1, column=3, sticky="ew", pady=(6, 0))
-        ctk.CTkLabel(
-            settings,
-            textvariable=self.model_help_var,
-            text_color=MUTED,
-            font=("Segoe UI", 11),
-            anchor="w",
-            justify="left",
-            wraplength=780,
-        ).grid(row=2, column=0, columnspan=4, sticky="w", pady=(10, 0))
-
-        _, inputs = self._card(page, "素材", "本地文件只在当前电脑读取。")
-        inputs.grid_columnconfigure(0, weight=1)
-        self.source_entry, self.source_button = self._file_row(
-            inputs, 0, "原视频", self.source_video_var, "选择视频", self._choose_source_video
-        )
-        self.reference_entry, self.reference_button = self._file_row(
-            inputs, 1, "产品参考图", self.reference_image_var, "选择图片", self._choose_reference_image
-        )
-        self._field_label(inputs, "参考图公网 URL").grid(row=4, column=0, sticky="w", pady=(14, 0))
-        self.public_url_entry = self._entry(inputs, self.public_image_url_var)
-        self.public_url_entry.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(6, 0))
-        ctk.CTkLabel(
-            inputs,
-            textvariable=self.public_url_help_var,
-            text_color=ORANGE,
-            font=("Segoe UI", 11),
-            anchor="w",
-            justify="left",
-            wraplength=790,
-        ).grid(row=6, column=0, columnspan=2, sticky="w", pady=(8, 0))
-
-        _, relation = self._card(
-            page,
-            "尺寸关系",
-            "只整理你的原话，不会根据画面自行猜测产品尺寸。",
-        )
-        self.relation_text = ctk.CTkTextbox(
-            relation,
-            height=86,
+    @staticmethod
+    def _plain_text_box(parent, *, height: int, read_only: bool = False) -> Text:
+        border = ctk.CTkFrame(
+            parent,
+            fg_color=BORDER,
             corner_radius=12,
-            border_width=1,
-            border_color=BORDER,
-            fg_color="#FBFBFD",
-            text_color=TEXT,
-            font=("Segoe UI", 12),
+            border_width=0,
         )
-        self.relation_text.pack(fill="x")
-        self.relation_text.insert("1.0", "参考图产品高度约为原视频产品的三分之二，宽度一致")
+        border.pack(fill="x")
+        text = Text(
+            border,
+            height=height,
+            wrap="word",
+            undo=not read_only,
+            relief="flat",
+            borderwidth=0,
+            highlightthickness=0,
+            background="#FBFBFD",
+            foreground=TEXT if not read_only else MUTED,
+            insertbackground=TEXT,
+            selectbackground="#B7D9FF",
+            selectforeground=TEXT,
+            font=("Segoe UI", 12 if not read_only else 10),
+            padx=11,
+            pady=9,
+        )
+        text.pack(fill="x", padx=1, pady=1)
+        if read_only:
+            text.configure(state="disabled")
+        return text
 
-        _, output = self._card(page, "输出位置")
-        output.grid_columnconfigure(0, weight=1)
-        self.output_entry = self._entry(output, self.output_var)
-        self.output_entry.grid(row=0, column=0, sticky="ew", padx=(0, 10))
-        self.output_button = ctk.CTkButton(
-            output,
-            text="选择位置",
-            command=self._choose_output,
-            width=104,
-            height=40,
-            corner_radius=10,
-            fg_color="#F0F0F2",
-            hover_color="#E5E5EA",
-            text_color=TEXT,
-        )
-        self.output_button.grid(row=0, column=1)
-
-        _, prompt = self._card(page, "固定提示词", "由提示词分析 Skill 生成并原样传递。")
-        self.prompt_text = ctk.CTkTextbox(
-            prompt,
-            height=92,
-            corner_radius=12,
-            border_width=1,
-            border_color=BORDER,
-            fg_color="#FBFBFD",
-            text_color=TEXT,
-            font=("Segoe UI", 12),
-            state="disabled",
-        )
-        self.prompt_text.pack(fill="x")
-
-        actions = ctk.CTkFrame(page, fg_color="transparent")
-        actions.pack(fill="x", pady=(2, 12))
-        self.analyze_button = self._secondary_button(actions, "只生成提示词", self._start_analysis)
-        self.analyze_button.pack(side="left")
-        self.check_button = self._secondary_button(actions, "检查模型输入", self._start_check)
-        self.check_button.pack(side="left", padx=8)
-        self.full_button = ctk.CTkButton(
-            actions,
-            text="一键开始换品",
-            command=self._start_full_pipeline,
-            width=148,
-            height=44,
-            corner_radius=22,
-            fg_color=BLUE,
-            hover_color=BLUE_HOVER,
-            text_color="white",
-            font=("Segoe UI", 13, "bold"),
-        )
-        self.full_button.pack(side="right")
-        self.generate_button = self._secondary_button(
-            actions, "使用当前提示词生成", self._start_generate
-        )
-        self.generate_button.pack(side="right", padx=8)
-
-        status_card = ctk.CTkFrame(
-            page, fg_color=CARD, corner_radius=16, border_width=1, border_color=BORDER
-        )
-        status_card.pack(fill="x", pady=(0, 14))
-        ctk.CTkLabel(
-            status_card,
-            textvariable=self.status_var,
-            text_color=TEXT,
-            font=("Segoe UI", 12, "bold"),
-        ).pack(side="left", padx=18, pady=14)
-        self.progress = ctk.CTkProgressBar(
-            status_card, width=180, height=5, corner_radius=3, progress_color=BLUE
-        )
-        self.progress.set(0)
-        self.progress.pack(side="left", padx=8)
-        self.open_button = self._secondary_button(
-            status_card, "打开输出文件夹", self._open_output_folder, width=128
-        )
-        self.open_button.configure(state="disabled")
-        self.open_button.pack(side="right", padx=12, pady=8)
-
-        ctk.CTkLabel(
-            page,
-            text="生成成功仅代表技术执行完成；换品自然度、人物动作和画面质量仍需人工验收。",
-            text_color=ORANGE,
-            font=("Segoe UI", 11),
-            anchor="w",
-        ).pack(anchor="w", pady=(0, 8))
-        self.log_text = ctk.CTkTextbox(
-            page,
-            height=100,
-            corner_radius=14,
-            border_width=1,
-            border_color=BORDER,
-            fg_color="#FBFBFD",
-            text_color=MUTED,
-            font=("Consolas", 10),
-            state="disabled",
-        )
-        self.log_text.pack(fill="x", pady=(0, 18))
 
     def _file_row(self, parent, row, label, variable, button_text, command):
         self._field_label(parent, label).grid(row=row * 2, column=0, sticky="w", pady=(0 if row == 0 else 14, 0))
@@ -757,309 +571,6 @@ class MaterialUniverseApp:
             font=("Segoe UI", 12, "bold"),
         )
 
-    def _build_edit_tab_guided(self) -> None:
-        page = self.editor_page = ctk.CTkScrollableFrame(
-            self.edit_tab, fg_color=BG, corner_radius=0, scrollbar_button_color="#C7C7CC"
-        )
-        page.pack(fill="both", expand=True, padx=34, pady=24)
-        ctk.CTkLabel(
-            page,
-            text="AI 视频换品",
-            text_color=TEXT,
-            font=("Segoe UI", 28, "bold"),
-            anchor="w",
-        ).pack(anchor="w")
-        ctk.CTkLabel(
-            page,
-            text="先选择素材，系统会自动识别原视频规格，再完成提示词分析与视频换品。",
-            text_color=MUTED,
-            font=("Segoe UI", 13),
-            anchor="w",
-        ).pack(anchor="w", pady=(4, 22))
-
-        _, media = self._card(page, "1  素材", "视频可在软件内预览；产品图以缩略图显示。")
-        media.grid_columnconfigure((0, 1), weight=1, uniform="preview")
-
-        video_panel = ctk.CTkFrame(media, fg_color="#F7F7F9", corner_radius=14)
-        video_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
-        ctk.CTkLabel(
-            video_panel,
-            text="原视频",
-            text_color=TEXT,
-            font=("Segoe UI", 13, "bold"),
-        ).pack(anchor="w", padx=14, pady=(13, 8))
-        self.video_stage = ctk.CTkFrame(
-            video_panel, height=250, fg_color="#111111", corner_radius=12
-        )
-        self.video_stage.pack(fill="x", padx=14)
-        self.video_stage.pack_propagate(False)
-        self.video_poster_label = ctk.CTkLabel(
-            self.video_stage,
-            text="选择原视频后可在这里播放",
-            text_color="#A1A1A6",
-            fg_color="#111111",
-            corner_radius=12,
-            font=("Segoe UI", 12),
-        )
-        self.video_poster_label.place(
-            relx=0.5, rely=0.5, anchor="center", relwidth=1, relheight=1
-        )
-        self.video_player = EmbeddedVideoPlayer(
-            self.root, self.video_stage, self.video_poster_label
-        )
-        self.video_player.state_callback = self._video_player_state
-        video_controls = ctk.CTkFrame(video_panel, fg_color="transparent")
-        video_controls.pack(fill="x", padx=14, pady=(10, 4))
-        self.source_button = self._secondary_button(
-            video_controls, "选择视频", self._choose_source_video, width=100
-        )
-        self.source_button.pack(side="left")
-        self.play_button = self._secondary_button(
-            video_controls, "播放", self.video_player.toggle, width=78
-        )
-        self.play_button.configure(textvariable=self.play_button_var, state="disabled")
-        self.play_button.pack(side="left", padx=6)
-        self.replay_button = self._secondary_button(
-            video_controls, "重播", self.video_player.replay, width=70
-        )
-        self.replay_button.configure(state="disabled")
-        self.replay_button.pack(side="left")
-        self.system_player_button = self._secondary_button(
-            video_controls, "系统播放器", self.video_player.open_system_player, width=108
-        )
-        self.system_player_button.configure(state="disabled")
-        self.system_player_button.pack(side="right")
-        ctk.CTkLabel(
-            video_panel,
-            textvariable=self.source_summary_var,
-            text_color=MUTED,
-            font=("Segoe UI", 11),
-            anchor="w",
-        ).pack(fill="x", padx=15, pady=(5, 14))
-
-        image_panel = ctk.CTkFrame(media, fg_color="#F7F7F9", corner_radius=14)
-        image_panel.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
-        ctk.CTkLabel(
-            image_panel,
-            text="产品参考图",
-            text_color=TEXT,
-            font=("Segoe UI", 13, "bold"),
-        ).pack(anchor="w", padx=14, pady=(13, 8))
-        self.image_stage = ctk.CTkFrame(
-            image_panel, height=250, fg_color="#EFEFF4", corner_radius=12
-        )
-        self.image_stage.pack(fill="x", padx=14)
-        self.image_stage.pack_propagate(False)
-        self.product_image_label = ctk.CTkLabel(
-            self.image_stage,
-            text="选择图片后显示缩略图",
-            text_color=MUTED,
-            fg_color="#EFEFF4",
-            corner_radius=12,
-            font=("Segoe UI", 12),
-        )
-        self.product_image_label.pack(fill="both", expand=True)
-        image_controls = ctk.CTkFrame(image_panel, fg_color="transparent")
-        image_controls.pack(fill="x", padx=14, pady=(10, 4))
-        self.reference_button = self._secondary_button(
-            image_controls, "选择图片", self._choose_reference_image, width=100
-        )
-        self.reference_button.pack(side="left")
-        ctk.CTkLabel(
-            image_panel,
-            textvariable=self.image_summary_var,
-            text_color=MUTED,
-            font=("Segoe UI", 11),
-            anchor="w",
-        ).pack(fill="x", padx=15, pady=(5, 14))
-
-        self.public_url_container = ctk.CTkFrame(media, fg_color="transparent")
-        self.public_url_container.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(14, 0))
-        self.public_url_container.grid_columnconfigure(0, weight=1)
-        self._field_label(self.public_url_container, "OmniFlash 公网参考图 URL").grid(
-            row=0, column=0, sticky="w"
-        )
-        self.public_url_entry = self._entry(self.public_url_container, self.public_image_url_var)
-        self.public_url_entry.grid(row=1, column=0, sticky="ew", pady=(6, 0))
-        ctk.CTkLabel(
-            self.public_url_container,
-            textvariable=self.public_url_help_var,
-            text_color=ORANGE,
-            font=("Segoe UI", 11),
-            anchor="w",
-        ).grid(row=2, column=0, sticky="w", pady=(6, 0))
-
-        _, relation = self._card(
-            page,
-            "2  尺寸关系",
-            "描述参考图产品与原视频产品的体积或外形关系；系统不会自行估算。",
-        )
-        self.relation_text = ctk.CTkTextbox(
-            relation,
-            height=88,
-            corner_radius=12,
-            border_width=1,
-            border_color=BORDER,
-            fg_color="#FBFBFD",
-            text_color=TEXT,
-            font=("Segoe UI", 12),
-        )
-        self.relation_text.pack(fill="x")
-
-        _, settings = self._card(
-            page,
-            "3  输出设置",
-            "默认使用 Wan3 视频参考模型、480p；秒数与比例会跟随原视频自动填写。",
-        )
-        settings.grid_columnconfigure((0, 1, 2, 3), weight=1, uniform="spec")
-        for column, label in enumerate(("视频模型", "画面比例", "视频秒数", "分辨率")):
-            self._field_label(settings, label).grid(
-                row=0, column=column, sticky="w", padx=(0, 12)
-            )
-        self.model_box = ctk.CTkComboBox(
-            settings,
-            variable=self.model_var,
-            values=[item["model"] for item in self.models],
-            height=40,
-            corner_radius=10,
-            border_color=BORDER,
-            button_color="#F0F0F2",
-            button_hover_color="#E5E5EA",
-            fg_color="#FBFBFD",
-            text_color=TEXT,
-            dropdown_fg_color=CARD,
-            command=lambda _value: self._update_model_help(),
-        )
-        self.model_box.grid(row=1, column=0, sticky="ew", padx=(0, 12), pady=(6, 0))
-        self.aspect_box = ctk.CTkOptionMenu(
-            settings,
-            variable=self.aspect_ratio_var,
-            values=["9:16", "16:9", "1:1", "4:3", "3:4"],
-            height=40,
-            corner_radius=10,
-            fg_color="#F0F0F2",
-            button_color="#E5E5EA",
-            button_hover_color="#D1D1D6",
-            text_color=TEXT,
-        )
-        self.aspect_box.grid(row=1, column=1, sticky="ew", padx=(0, 12), pady=(6, 0))
-        self.duration_spin = self._entry(settings, self.duration_var)
-        self.duration_spin.grid(row=1, column=2, sticky="ew", padx=(0, 12), pady=(6, 0))
-        self.resolution_box = ctk.CTkOptionMenu(
-            settings,
-            variable=self.resolution_var,
-            values=["480p", "720p", "1080p"],
-            height=40,
-            corner_radius=10,
-            fg_color="#F0F0F2",
-            button_color="#E5E5EA",
-            button_hover_color="#D1D1D6",
-            text_color=TEXT,
-        )
-        self.resolution_box.grid(row=1, column=3, sticky="ew", pady=(6, 0))
-        ctk.CTkLabel(
-            settings,
-            textvariable=self.model_help_var,
-            text_color=MUTED,
-            font=("Segoe UI", 11),
-            anchor="w",
-            justify="left",
-            wraplength=780,
-        ).grid(row=2, column=0, columnspan=4, sticky="w", pady=(10, 0))
-
-        _, output = self._card(page, "4  输出位置")
-        output.grid_columnconfigure(0, weight=1)
-        self.output_entry = self._entry(output, self.output_var)
-        self.output_entry.grid(row=0, column=0, sticky="ew", padx=(0, 10))
-        self.output_button = self._secondary_button(
-            output, "选择位置", self._choose_output, width=104
-        )
-        self.output_button.grid(row=0, column=1)
-
-        _, prompt = self._card(page, "5  提示词", "由提示词分析 Skill 生成并原样传递。")
-        self.prompt_text = ctk.CTkTextbox(
-            prompt,
-            height=94,
-            corner_radius=12,
-            border_width=1,
-            border_color=BORDER,
-            fg_color="#FBFBFD",
-            text_color=TEXT,
-            font=("Segoe UI", 12),
-            state="disabled",
-        )
-        self.prompt_text.pack(fill="x")
-
-        _, swap = self._card(
-            page,
-            "6  换品",
-            "先生成并检查提示词，或直接运行完整流程；正式生成只提交一次。",
-        )
-        actions = ctk.CTkFrame(swap, fg_color="transparent")
-        actions.pack(fill="x")
-        self.analyze_button = self._secondary_button(
-            actions, "只生成提示词", self._start_analysis
-        )
-        self.analyze_button.pack(side="left")
-        self.check_button = self._secondary_button(
-            actions, "检查模型输入", self._start_check
-        )
-        self.check_button.pack(side="left", padx=8)
-        self.generate_button = self._secondary_button(
-            actions, "使用当前提示词生成", self._start_generate, width=164
-        )
-        self.generate_button.pack(side="right", padx=8)
-        self.full_button = ctk.CTkButton(
-            actions,
-            text="一键开始换品",
-            command=self._start_full_pipeline,
-            width=148,
-            height=44,
-            corner_radius=22,
-            fg_color=BLUE,
-            hover_color=BLUE_HOVER,
-            text_color="white",
-            font=("Segoe UI", 13, "bold"),
-        )
-        self.full_button.pack(side="right")
-
-        status = ctk.CTkFrame(swap, fg_color="#F7F7F9", corner_radius=13)
-        status.pack(fill="x", pady=(14, 0))
-        ctk.CTkLabel(
-            status,
-            textvariable=self.status_var,
-            text_color=TEXT,
-            font=("Segoe UI", 12, "bold"),
-        ).pack(side="left", padx=16, pady=13)
-        self.progress = ctk.CTkProgressBar(
-            status, width=170, height=5, corner_radius=3, progress_color=BLUE
-        )
-        self.progress.set(0)
-        self.progress.pack(side="left", padx=8)
-        self.open_button = self._secondary_button(
-            status, "打开输出文件夹", self._open_output_folder, width=128
-        )
-        self.open_button.configure(state="disabled")
-        self.open_button.pack(side="right", padx=10, pady=7)
-        ctk.CTkLabel(
-            swap,
-            text="生成成功仅代表技术执行完成；换品效果仍需人工验收。",
-            text_color=ORANGE,
-            font=("Segoe UI", 11),
-            anchor="w",
-        ).pack(anchor="w", pady=(12, 7))
-        self.log_text = ctk.CTkTextbox(
-            swap,
-            height=96,
-            corner_radius=12,
-            border_width=1,
-            border_color=BORDER,
-            fg_color="#FBFBFD",
-            text_color=MUTED,
-            font=("Consolas", 10),
-            state="disabled",
-        )
-        self.log_text.pack(fill="x")
 
     def _build_edit_tab(self) -> None:
         page = self.editor_page = ctk.CTkScrollableFrame(
@@ -1091,17 +602,7 @@ class MaterialUniverseApp:
             "2  尺寸关系",
             "描述参考图产品与原视频产品的体积或外形关系；系统不会自行估算。",
         )
-        self.relation_text = ctk.CTkTextbox(
-            relation,
-            height=88,
-            corner_radius=12,
-            border_width=1,
-            border_color=BORDER,
-            fg_color="#FBFBFD",
-            text_color=TEXT,
-            font=("Segoe UI", 12),
-        )
-        self.relation_text.pack(fill="x")
+        self.relation_text = self._plain_text_box(relation, height=4)
 
         _, settings = self._card(
             page,
@@ -1186,6 +687,8 @@ class MaterialUniverseApp:
             font=("Segoe UI", 14, "bold"),
         )
         self.full_button.pack(fill="x")
+        self.resume_button = self._secondary_button(swap, "继续已有任务", self._resume_task)
+        self.resume_button.pack(anchor="e", pady=(8, 0))
         status = ctk.CTkFrame(swap, fg_color="#F7F7F9", corner_radius=13)
         status.pack(fill="x", pady=(14, 0))
         ctk.CTkLabel(
@@ -1209,18 +712,9 @@ class MaterialUniverseApp:
         )
         self.copy_link_button.configure(state="disabled")
         self.copy_link_button.pack(side="right", pady=7)
-        self.log_text = ctk.CTkTextbox(
-            swap,
-            height=88,
-            corner_radius=12,
-            border_width=1,
-            border_color=BORDER,
-            fg_color="#FBFBFD",
-            text_color=MUTED,
-            font=("Segoe UI", 10),
-            state="disabled",
-        )
-        self.log_text.pack(fill="x", pady=(12, 0))
+        log_container = ctk.CTkFrame(swap, fg_color="transparent")
+        log_container.pack(fill="x", pady=(12, 0))
+        self.log_text = self._plain_text_box(log_container, height=4, read_only=True)
 
     def _build_video_preview(self, media) -> None:
         panel = ctk.CTkFrame(media, fg_color="#F7F7F9", corner_radius=14)
@@ -1476,14 +970,47 @@ class MaterialUniverseApp:
 
     def _load_source_video(self, selected: Path) -> None:
         path = selected.resolve()
+        token = uuid.uuid4().hex
+        self._source_load_token = token
+        self.source_video_var.set("")
         self.status_var.set("正在识别原视频时长与比例…")
-        self.root.update_idletasks()
+        self.source_button.configure(state="disabled")
+        threading.Thread(
+            target=self._inspect_source_video,
+            args=(token, path),
+            daemon=True,
+        ).start()
+
+    def _inspect_source_video(self, token: str, path: Path) -> None:
         try:
             info = probe_video(path)
             poster = video_poster(path, (420, 250))
         except Exception as exc:
-            messagebox.showerror("无法读取视频", str(exc), parent=self.root)
-            self.status_var.set("原视频读取失败")
+            self.events.put(
+                ("source_load_failed", {"token": token, "error": str(exc)})
+            )
+            return
+        self.events.put(
+            (
+                "source_loaded",
+                {"token": token, "path": path, "info": info, "poster": poster},
+            )
+        )
+
+    def _handle_source_loaded(self, data: dict[str, object]) -> None:
+        if str(data.get("token", "")) != self._source_load_token:
+            return
+        path = data["path"]
+        info = data["info"]
+        poster = data["poster"]
+        if (
+            not isinstance(path, Path)
+            or not isinstance(info, VideoInfo)
+            or not isinstance(poster, Image.Image)
+        ):
+            self._handle_source_load_failed(
+                {"token": self._source_load_token, "error": "视频识别结果格式无效。"}
+            )
             return
         self.source_video_var.set(str(path))
         self.video_info = info
@@ -1500,7 +1027,21 @@ class MaterialUniverseApp:
         if hasattr(self, "system_player_button"):
             self.system_player_button.configure(state="normal")
         self.output_var.set(str(self._automatic_output_path(path)))
+        if not self.running:
+            self.source_button.configure(state="normal")
         self.status_var.set("已识别原视频规格，输出设置已自动跟随")
+
+    def _handle_source_load_failed(self, data: dict[str, object]) -> None:
+        if str(data.get("token", "")) != self._source_load_token:
+            return
+        if not self.running:
+            self.source_button.configure(state="normal")
+        self.status_var.set("原视频读取失败")
+        messagebox.showerror(
+            "无法读取视频",
+            str(data.get("error", "未知错误")),
+            parent=self.root,
+        )
 
     def _automatic_output_path(self, source: Path) -> Path:
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1518,10 +1059,41 @@ class MaterialUniverseApp:
 
     def _load_reference_image(self, selected: Path) -> None:
         path = selected.resolve()
+        token = uuid.uuid4().hex
+        self._reference_load_token = token
+        self.reference_image_var.set("")
+        self.image_summary_var.set("正在读取产品参考图…")
+        self.reference_button.configure(state="disabled")
+        threading.Thread(
+            target=self._inspect_reference_image,
+            args=(token, path),
+            daemon=True,
+        ).start()
+
+    def _inspect_reference_image(self, token: str, path: Path) -> None:
         try:
             thumbnail = image_thumbnail(path, (420, 250))
         except Exception as exc:
-            messagebox.showerror("无法读取图片", str(exc), parent=self.root)
+            self.events.put(
+                ("reference_load_failed", {"token": token, "error": str(exc)})
+            )
+            return
+        self.events.put(
+            (
+                "reference_loaded",
+                {"token": token, "path": path, "thumbnail": thumbnail},
+            )
+        )
+
+    def _handle_reference_loaded(self, data: dict[str, object]) -> None:
+        if str(data.get("token", "")) != self._reference_load_token:
+            return
+        path = data["path"]
+        thumbnail = data["thumbnail"]
+        if not isinstance(path, Path) or not isinstance(thumbnail, Image.Image):
+            self._handle_reference_load_failed(
+                {"token": self._reference_load_token, "error": "图片读取结果格式无效。"}
+            )
             return
         self.reference_image_var.set(str(path))
         self.product_preview_ctk_image = ctk.CTkImage(
@@ -1529,6 +1101,20 @@ class MaterialUniverseApp:
         )
         self.product_image_label.configure(image=self.product_preview_ctk_image, text="")
         self.image_summary_var.set(path.name)
+        if not self.running:
+            self.reference_button.configure(state="normal")
+
+    def _handle_reference_load_failed(self, data: dict[str, object]) -> None:
+        if str(data.get("token", "")) != self._reference_load_token:
+            return
+        if not self.running:
+            self.reference_button.configure(state="normal")
+        self.image_summary_var.set("产品参考图读取失败")
+        messagebox.showerror(
+            "无法读取图片",
+            str(data.get("error", "未知错误")),
+            parent=self.root,
+        )
 
     def _video_player_state(self, playing: bool, paused: bool) -> None:
         if not playing:
@@ -1679,35 +1265,8 @@ class MaterialUniverseApp:
         )
         return False
 
-    def _start_analysis(self) -> None:
-        if self.running or not self._require_app_credentials(prompt=True):
-            return
-        values = self._validate_common(require_relation=True, require_generation=False)
-        if values is not None:
-            self._start_worker("analysis", values)
 
-    def _start_check(self) -> None:
-        values = self._validate_common(require_relation=False)
-        if values is not None and not self.running:
-            self._start_worker("check", values)
 
-    def _start_generate(self) -> None:
-        if self.running or not self._require_app_credentials(video=True):
-            return
-        values = self._validate_common(require_relation=True)
-        if values is None:
-            return
-        prompt = self._current_prompt()
-        if not prompt or self.generated_context != self._context():
-            messagebox.showerror(
-                "请重新生成提示词",
-                "当前提示词为空，或原视频、参考图、尺寸关系已经变化。请先点击“只生成提示词”。",
-                parent=self.root,
-            )
-            return
-        if self._confirm_paid_run():
-            values["prompt"] = prompt
-            self._start_worker("generate", values)
 
     def _start_full_pipeline(self) -> None:
         if self.running or not self._require_app_credentials(prompt=True, video=True):
@@ -1719,17 +1278,10 @@ class MaterialUniverseApp:
         if values is not None:
             self._start_worker("full", values)
 
-    def _confirm_paid_run(self) -> bool:
-        return messagebox.askokcancel(
-            "确认正式生成",
-            "工作台会向所选视频模型正式提交一次，可能产生费用。\n\n不会自动重试。是否继续？",
-            icon="warning",
-            parent=self.root,
-        )
 
     def _start_worker(self, mode: str, values: dict[str, object]) -> None:
         values = dict(values)
-        values["_env"] = self._child_env()
+        values["_credentials"] = self._credential_values()
         values["_prompt_model"] = self.prompt_model_var.get().strip()
         values["_check_prompt"] = self._current_prompt()
         self._set_running(True)
@@ -1738,107 +1290,44 @@ class MaterialUniverseApp:
             "check": "正在检查模型输入，不会提交…",
             "generate": "正在生成视频，请勿关闭窗口…",
             "full": "正在执行完整换品流程…",
+            "resume": "正在继续原任务查询或下载…",
         }
         self.status_var.set(labels[mode])
         self._set_log("任务已开始。正式生成最多提交一次，不会自动重试。")
         threading.Thread(target=self._worker, args=(mode, values), daemon=True).start()
 
-    def _run_command(
-        self, command: list[str], cwd: Path, env: dict[str, str]
-    ) -> tuple[int, dict[str, object], str]:
-        if getattr(sys, "frozen", False):
-            from portable_runtime import run_internal_command
 
-            return_code, stdout, stderr = run_internal_command(command, cwd, env)
-        else:
-            completed = subprocess.run(
-                command,
-                cwd=cwd,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                env=env,
-                creationflags=CREATE_NO_WINDOW,
-                check=False,
-            )
-            return_code = completed.returncode
-            stdout, stderr = completed.stdout.strip(), completed.stderr.strip()
-        try:
-            payload = json.loads(stdout) if stdout else {}
-        except json.JSONDecodeError:
-            payload = {"success": False, "error": stdout or "程序没有返回有效结果。"}
-        if not isinstance(payload, dict):
-            payload = {"success": False, "error": "程序返回的数据格式无法识别。"}
-        return return_code, payload, stderr
 
-    def _analyze(self, values: dict[str, object]) -> tuple[int, dict[str, object], str]:
-        command = build_prompt_command(
-            sys.executable,
-            self.prompt_script,
-            video=str(values["source"]),
-            reference_image=str(values["image"]),
-            volume_relation=str(values["relation"]),
-            model=str(values["_prompt_model"]) or None,
+
+    def _resume_task(self) -> None:
+        if self.running:
+            return
+        selected = filedialog.askopenfilename(
+            parent=self.root, title="选择要继续的任务记录",
+            initialdir=self.workspace_output_dir_var.get(),
+            filetypes=[("视频任务记录", "*.video-task.json")],
         )
-        return self._run_command(command, self.prompt_skill_root, values["_env"])  # type: ignore[arg-type]
-
-    def _generate(
-        self, values: dict[str, object], prompt: str, dry_run: bool
-    ) -> tuple[int, dict[str, object], str]:
-        command = build_generate_command(
-            sys.executable,
-            GENERATE_SCRIPT,
-            prompt=prompt,
-            model=str(values["model"]),
-            references=values["references"],  # type: ignore[arg-type]
-            output=str(values["output"]),
-            duration=int(values["duration"]),
-            aspect_ratio=str(values["aspect_ratio"]),
-            resolution=str(values["resolution"]),
-            dry_run=dry_run,
-        )
-        return self._run_command(command, SKILL_ROOT, values["_env"])  # type: ignore[arg-type]
+        if selected:
+            self._start_worker("resume", {"task_state_file": selected})
 
     def _worker(self, mode: str, values: dict[str, object]) -> None:
+        runner = ModelRunner(SKILL_ROOT, values=values["_credentials"])
         try:
-            if mode in {"analysis", "full"}:
-                self.events.put(("status", "正在抽取视频画面并调用提示词分析 Skill…"))
-                code, prompt_payload, prompt_stderr = self._analyze(values)
-                if code != 0 or not prompt_payload.get("prompt"):
-                    raise RuntimeError(
-                        str(prompt_payload.get("error") or prompt_stderr or f"提示词 Skill 退出代码：{code}")
-                    )
-                prompt = str(prompt_payload["prompt"])
-                self.events.put(
-                    (
-                        "prompt_ready",
-                        {
-                            "prompt": prompt,
-                            "context": (str(values["source"]), str(values["image"]), str(values["relation"])),
-                            "detail": prompt_payload,
-                            "stderr": prompt_stderr,
-                        },
-                    )
-                )
-                if mode == "analysis":
-                    self.events.put(("finished", {"mode": mode, "payload": prompt_payload}))
-                    return
-                self.events.put(("status", "提示词已生成，正在向视频模型提交一次正式任务…"))
-                code, payload, stderr = self._generate(values, prompt, dry_run=False)
-            elif mode == "check":
-                code, payload, stderr = self._generate(
-                    values, str(values["_check_prompt"]) or "输入检查占位提示词", dry_run=True
-                )
+            if mode == "resume":
+                payload = runner.resume(Path(str(values["task_state_file"])))
             else:
-                code, payload, stderr = self._generate(values, str(values["prompt"]), dry_run=False)
-            if code != 0 or not payload.get("success"):
-                raise RuntimeError(str(payload.get("error") or stderr or f"程序退出代码：{code}"))
-            self.events.put(
-                ("finished", {"mode": mode, "payload": payload, "stderr": stderr, "output": values["output"]})
-            )
+                payload = ProductSwapWorkflow(runner).generate(
+                    str(values["source"]), str(values["image"]), str(values["relation"]),
+                    str(values["output"]), model=str(values["model"]),
+                    duration=int(values["duration"]), aspect_ratio=str(values["aspect_ratio"]),
+                    resolution=str(values["resolution"]),
+                    vision_model=str(values["_prompt_model"]) or DEFAULT_PROMPT_MODEL,
+                    max_source_seconds=None,
+                    progress=lambda message: self.events.put(("status", message)),
+                )
+            self.events.put(("finished", {"mode": mode, "payload": payload, "stderr": ""}))
         except Exception as exc:
-            self.events.put(("failed", str(exc)))
+            self.events.put(("failed", runner.redact(str(exc))))
 
     def _drain_events(self) -> None:
         try:
@@ -1846,6 +1335,14 @@ class MaterialUniverseApp:
                 kind, payload = self.events.get_nowait()
                 if kind == "status":
                     self.status_var.set(str(payload))
+                elif kind == "source_loaded":
+                    self._handle_source_loaded(payload)  # type: ignore[arg-type]
+                elif kind == "source_load_failed":
+                    self._handle_source_load_failed(payload)  # type: ignore[arg-type]
+                elif kind == "reference_loaded":
+                    self._handle_reference_loaded(payload)  # type: ignore[arg-type]
+                elif kind == "reference_load_failed":
+                    self._handle_reference_load_failed(payload)  # type: ignore[arg-type]
                 elif kind == "prompt_ready":
                     data = payload  # type: ignore[assignment]
                     self._set_prompt(str(data["prompt"]))
@@ -1938,6 +1435,7 @@ class MaterialUniverseApp:
             "relation_text",
             "model_box",
             "full_button",
+            "resume_button",
         ):
             widget = getattr(self, name, None)
             if widget is not None:

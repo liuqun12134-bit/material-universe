@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import queue
 import sys
 import unittest
 from pathlib import Path
@@ -180,6 +181,58 @@ class ProductCredentialImportTests(unittest.TestCase):
         app.prompt_model_var.set.assert_called_once_with("product-model")
         app._update_api_status.assert_called_once_with()
         showinfo.assert_called_once()
+
+
+class GuiResponsivenessTests(unittest.TestCase):
+    def test_page_switch_unmaps_the_hidden_page(self) -> None:
+        app = object.__new__(MaterialUniverseApp)
+        app.current_page = None
+        app.editor_nav = Mock()
+        app.api_nav = Mock()
+        app.edit_tab = Mock()
+        app.api_tab = Mock()
+
+        app._show_page("editor")
+
+        app.api_tab.grid_remove.assert_called_once_with()
+        app.edit_tab.grid.assert_called_once_with()
+        app.edit_tab.tkraise.assert_called_once_with()
+        self.assertEqual(app.current_page, "editor")
+
+        app._show_page("editor")
+        app.edit_tab.grid.assert_called_once_with()
+
+    @patch("video_gui.threading.Thread")
+    def test_source_inspection_starts_in_background(self, thread_class: Mock) -> None:
+        app = object.__new__(MaterialUniverseApp)
+        app.source_video_var = Mock()
+        app.status_var = Mock()
+        app.source_button = Mock()
+        app.events = queue.Queue()
+
+        app._load_source_video(Path("source.mp4"))
+
+        app.source_video_var.set.assert_called_once_with("")
+        app.source_button.configure.assert_called_once_with(state="disabled")
+        thread_class.assert_called_once()
+        self.assertTrue(thread_class.call_args.kwargs["daemon"])
+        thread_class.return_value.start.assert_called_once_with()
+
+    @patch("video_gui.image_thumbnail")
+    def test_reference_worker_returns_through_event_queue(self, image_thumbnail: Mock) -> None:
+        thumbnail = Mock()
+        image_thumbnail.return_value = thumbnail
+        app = object.__new__(MaterialUniverseApp)
+        app.events = queue.Queue()
+        path = Path("reference.png")
+
+        app._inspect_reference_image("token", path)
+
+        kind, payload = app.events.get_nowait()
+        self.assertEqual(kind, "reference_loaded")
+        self.assertEqual(payload["token"], "token")
+        self.assertEqual(payload["path"], path)
+        self.assertIs(payload["thumbnail"], thumbnail)
 
 
 if __name__ == "__main__":

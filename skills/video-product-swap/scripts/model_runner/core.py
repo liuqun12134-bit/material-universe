@@ -55,8 +55,9 @@ class GenerationRequest:
     references: list[Reference]
     output: Path
     duration: int | None
-    aspect_ratio: str | None
-    resolution: str | None
+    aspect_ratio: str | None = None
+    resolution: str | None = None
+    task_record: Any = None
 
 
 def infer_kind(value: str) -> tuple[str, str]:

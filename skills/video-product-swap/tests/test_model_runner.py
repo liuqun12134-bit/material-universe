@@ -43,6 +43,10 @@ class RegistryTests(unittest.TestCase):
 class DryRunTests(unittest.TestCase):
     def setUp(self) -> None:
         self.original_env = dict(os.environ)
+        # Test credentials must not depend on the developer's installed .env.
+        env_loader = patch("model_runner.credentials.load_env")
+        env_loader.start()
+        self.addCleanup(env_loader.stop)
         os.environ.pop("KAIYUNCODE_API_KEY", None)
         os.environ.pop("VIDEO_SWAP_API_KEY", None)
 
@@ -62,7 +66,7 @@ class DryRunTests(unittest.TestCase):
                 duration=None,
                 dry_run=True,
             )
-            result = ModelRunner(SKILL_ROOT).run(args)
+            result = ModelRunner(SKILL_ROOT, credential_source="host-app").run(args)
             self.assertTrue(result["dry_run"])
             self.assertEqual(result["adapter"], "omniflash")
             self.assertEqual(result["resolved_model"], "omni_video_edit")
@@ -83,7 +87,7 @@ class DryRunTests(unittest.TestCase):
                 dry_run=True,
             )
             with self.assertRaisesRegex(VideoGenerationError, "公网 HTTPS 参考图"):
-                ModelRunner(SKILL_ROOT).run(args)
+                ModelRunner(SKILL_ROOT, credential_source="host-app").run(args)
 
     def test_wan3_defaults_duration_and_maps_remote_fields(self) -> None:
         args = Namespace(
@@ -94,7 +98,7 @@ class DryRunTests(unittest.TestCase):
             duration=None,
             dry_run=True,
         )
-        result = ModelRunner(SKILL_ROOT).run(args)
+        result = ModelRunner(SKILL_ROOT, credential_source="host-app").run(args)
         self.assertEqual(result["adapter"], "wan3")
         self.assertEqual(result["request_payload"]["duration"], 5)
         self.assertEqual(result["request_payload"]["images"], ["https://example.com/ref"])
@@ -114,7 +118,7 @@ class DryRunTests(unittest.TestCase):
             resolution="1080p",
             dry_run=True,
         )
-        result = ModelRunner(SKILL_ROOT).run(args)
+        result = ModelRunner(SKILL_ROOT, credential_source="host-app").run(args)
         payload = result["request_payload"]
         self.assertEqual(payload["duration"], 10)
         self.assertEqual(payload["aspect_ratio"], "16:9")
@@ -130,7 +134,7 @@ class DryRunTests(unittest.TestCase):
             duration=5,
             dry_run=True,
         )
-        result = ModelRunner(SKILL_ROOT).run(args)
+        result = ModelRunner(SKILL_ROOT, credential_source="host-app").run(args)
         self.assertTrue(result["credential_configured"])
         self.assertEqual(result["credential_source"], "VIDEO_SWAP_API_KEY")
 
@@ -151,7 +155,7 @@ class DryRunTests(unittest.TestCase):
                 dry_run=True,
             )
 
-            result = ModelRunner(SKILL_ROOT).run(args)
+            result = ModelRunner(SKILL_ROOT, credential_source="host-app").run(args)
 
         self.assertEqual(result["adapter"], "dashscope_videoedit")
         self.assertEqual(result["provider"], "dashscope")
@@ -183,7 +187,7 @@ class DryRunTests(unittest.TestCase):
                 dry_run=True,
             )
             with self.assertRaisesRegex(VideoGenerationError, "720p 或 1080p"):
-                ModelRunner(SKILL_ROOT).run(args)
+                ModelRunner(SKILL_ROOT, credential_source="host-app").run(args)
 
 
 class ReferenceTests(unittest.TestCase):

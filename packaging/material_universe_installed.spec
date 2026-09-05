@@ -14,7 +14,7 @@ def required_tool(name):
     override = os.environ.get(f"MATERIAL_UNIVERSE_{name.upper()}", "").strip()
     executable = override or shutil.which(name)
     if not executable:
-        raise SystemExit(f"缺少 {name}，无法制作完整单文件版。")
+        raise SystemExit(f"缺少 {name}，无法制作完整安装版。")
     return str(Path(executable).resolve())
 
 
@@ -60,16 +60,13 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name="素材万象",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -79,4 +76,14 @@ exe = EXE(
     icon=[str(video_skill / "assets" / "material-universe.ico")],
     version=str(packaging_root / "version_info.txt"),
     uac_admin=False,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name="素材万象",
 )

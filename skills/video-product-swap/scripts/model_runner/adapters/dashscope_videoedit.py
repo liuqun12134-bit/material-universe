@@ -2,12 +2,30 @@ from __future__ import annotations
 
 import sys
 import time
+import threading
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 from ..core import GenerationRequest, Reference, VideoGenerationError, nested
 from ..credentials import Credential
-from .base import ModelAdapter, same_origin
+from .base import ModelAdapter, same_origin, save_download
+from ..task_state import TaskFailed
+
+
+_SDK_LOCK = threading.RLock()
+
+
+@contextmanager
+def sdk_base(sdk, api_base):
+    # DashScope exposes a global base URL; serialize its use, never mutate Key globals.
+    with _SDK_LOCK:
+        previous = getattr(sdk, "base_http_api_url", None)
+        sdk.base_http_api_url = api_base.rstrip("/")
+        try:
+            yield
+        finally:
+            sdk.base_http_api_url = previous
 
 
 VIDEO_EXTENSIONS = {".mp4", ".mov"}
@@ -131,9 +149,7 @@ class DashScopeVideoEditAdapter(ModelAdapter):
 
         payload = self.remote_payload(request)
         parameters = payload["parameters"]
-        previous_base = getattr(dashscope, "base_http_api_url", None)
-        dashscope.base_http_api_url = credential.api_base.rstrip("/")
-        try:
+        with sdk_base(dashscope, credential.api_base):
             try:
                 submitted = VideoSynthesis.async_call(
                     api_key=credential.api_key,
@@ -160,16 +176,30 @@ class DashScopeVideoEditAdapter(ModelAdapter):
             task_id = nested(submitted_payload, ("output", "task_id"), ("task_id",))
             if not task_id:
                 raise _response_error(submitted, "提交 Wan 官方视频任务")
-
+            if request.task_record is not None:
+                request.task_record.update(task_id=str(task_id), status="submitted")
             result = self._poll(VideoSynthesis, str(task_id), credential.api_key)
-        finally:
-            if previous_base is not None:
-                dashscope.base_http_api_url = previous_base
 
         video_url = nested(result, ("output", "video_url"), ("video_url",))
         if not video_url:
             raise VideoGenerationError("Wan 官方任务已完成，但没有返回视频 URL。")
+        if request.task_record is not None:
+            request.task_record.update(video_url=str(video_url), status="generated")
         return self._download(request, credential, str(task_id), str(video_url))
+
+    def resume(self, request, credential):
+        state = request.task_record.data
+        video_url = state.get("video_url")
+        if not video_url:
+            import dashscope
+            from dashscope import VideoSynthesis
+            with sdk_base(dashscope, credential.api_base):
+                result = self._poll(VideoSynthesis, state["task_id"], credential.api_key)
+            video_url = nested(result, ("output", "video_url"), ("video_url",))
+            if not video_url:
+                raise VideoGenerationError("Wan 官方任务尚未返回视频 URL。")
+            request.task_record.update(video_url=str(video_url), status="generated")
+        return self._download(request, credential, state.get("task_id"), str(video_url))
 
     @staticmethod
     def _poll(
@@ -193,7 +223,7 @@ class DashScopeVideoEditAdapter(ModelAdapter):
             if status in SUCCESS_STATES:
                 return payload
             if status in FAILURE_STATES:
-                raise _response_error(response, "Wan 官方视频任务")
+                raise TaskFailed(str(_response_error(response, "Wan 官方视频任务")))
             print(f"Wan 官方视频任务状态：{status or '未知'}", file=sys.stderr, flush=True)
             time.sleep(interval)
         raise VideoGenerationError(f"等待 Wan 官方视频任务完成超时（{timeout:g} 秒）。")
@@ -247,8 +277,11 @@ class DashScopeVideoEditAdapter(ModelAdapter):
                 "local_downloaded": False,
                 "download_error": f"下载视频失败（{detail}）。",
             }
-        request.output.parent.mkdir(parents=True, exist_ok=True)
-        request.output.write_bytes(response.content)
+        try:
+            save_download(request, response.content)
+        except OSError as exc:
+            return {**common_result, "output": None, "delivery": "url_fallback",
+                    "local_downloaded": False, "download_error": f"保存视频失败：{exc}"}
         return {
             **common_result,
             "output": str(request.output),

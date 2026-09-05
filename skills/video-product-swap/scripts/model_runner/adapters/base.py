@@ -15,6 +15,7 @@ from ..core import (
     result_url,
 )
 from ..credentials import Credential
+from ..task_state import TaskFailed
 
 
 SUCCESS_STATES = {"completed", "succeeded", "success"}
@@ -207,7 +208,7 @@ class KaiyunRelayAdapter(ModelAdapter):
                 return payload
             if status in FAILURE_STATES:
                 detail = nested(payload, ("error",), ("message",), ("data", "error"))
-                raise VideoGenerationError(f"视频任务失败：{detail or status}")
+                raise TaskFailed(f"视频任务失败：{detail or status}")
             if status in SUCCESS_STATES:
                 now = time.monotonic()
                 success_seen_at = success_seen_at or now
@@ -238,19 +239,34 @@ class KaiyunRelayAdapter(ModelAdapter):
             submitted, ("id",), ("task_id",), ("data", "id"), ("data", "task_id")
         )
         video_url = result_url(submitted)
+        poll_url = nested(submitted, ("poll_url",), ("data", "poll_url"))
+        if poll_url:
+            poll_url = urljoin(endpoint + "/", str(poll_url))
+        elif task_id:
+            poll_url = f"{endpoint}/{task_id}"
+        if request.task_record is not None:
+            request.task_record.update(task_id=str(task_id) if task_id else None,
+                                       poll_url=poll_url, video_url=video_url, status="submitted")
+        return self._continue(request, credential, session, task_id, video_url, poll_url)
+
+    def resume(self, request: GenerationRequest, credential: Credential) -> dict[str, Any]:
+        import requests
+        state = request.task_record.data
+        return self._continue(request, credential, requests.Session(), state.get("task_id"),
+                              state.get("video_url"), state.get("poll_url"))
+
+    def _continue(self, request, credential, session, task_id, video_url, poll_url):
+        headers = {"Authorization": f"Bearer {credential.api_key}"}
         if not video_url:
-            poll_url = nested(submitted, ("poll_url",), ("data", "poll_url"))
-            if poll_url:
-                poll_url = urljoin(endpoint + "/", str(poll_url))
-            elif task_id:
-                poll_url = f"{endpoint}/{task_id}"
-            else:
+            if not poll_url:
                 raise VideoGenerationError("提交响应中没有任务 ID、poll_url 或结果 URL。")
             if not same_origin(poll_url, credential.api_base):
                 raise VideoGenerationError("轮询地址与 API 不同源，已停止以避免泄露密钥。")
             video_url = result_url(self.poll(session, poll_url, headers))
         if not video_url:
             raise VideoGenerationError("任务已完成，但没有返回视频 URL。")
+        if request.task_record is not None:
+            request.task_record.update(video_url=video_url, status="generated")
         common_result = {
             "success": True,
             "model": request.model.api_model,
@@ -289,11 +305,25 @@ class KaiyunRelayAdapter(ModelAdapter):
                 "local_downloaded": False,
                 "download_error": "下载结果为空。",
             }
-        request.output.parent.mkdir(parents=True, exist_ok=True)
-        request.output.write_bytes(response.content)
+        try:
+            save_download(request, response.content)
+        except OSError as exc:
+            return {**common_result, "output": None, "delivery": "url_fallback",
+                    "local_downloaded": False, "download_error": f"保存视频失败：{exc}"}
         return {
             **common_result,
             "output": str(request.output),
             "delivery": "local_file",
             "local_downloaded": True,
         }
+
+
+def save_download(request: GenerationRequest, content: bytes) -> None:
+    request.output.parent.mkdir(parents=True, exist_ok=True)
+    if request.output.exists():
+        raise FileExistsError(f"输出文件已存在：{request.output}")
+    temporary = request.output.with_name(request.output.name + ".part")
+    temporary.write_bytes(content)
+    if request.output.exists():
+        raise FileExistsError(f"输出文件已存在：{request.output}")
+    temporary.replace(request.output)

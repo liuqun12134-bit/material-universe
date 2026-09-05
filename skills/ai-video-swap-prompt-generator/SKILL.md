@@ -5,6 +5,8 @@ description: 根据参考视频识别产品所在位置，整理用户提供的�
 
 # AI 视频换品提示词生成器
 
+本 Skill 现在是轻量的提示词入口，复用同级 `video-product-swap/scripts/prompt_engine.py`。本项目保留两个入口，但分析实现只维护一份；视频换品不依赖本 Skill。单独部署本提示词入口时，需要同时提供该共用模块。提示词入口继续只读取自己根目录的 `.env`。
+
 使用 `scripts/generate_swap_prompt.py` 通过 DeepSeek 官方 OpenAI 兼容接口调用 `deepseek-v4-flash-vision-exp`。脚本从参考视频本地抽取 12 帧时间序列图，供 DeepSeek 识别产品位置；同时把用户提供的体积或外形尺寸关系整理成清楚、无歧义的一句话，最后由本地脚本拼装固定换品提示词。
 
 ## 必需输入
