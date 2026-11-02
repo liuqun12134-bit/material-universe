@@ -292,7 +292,8 @@ class VoiceServiceTests(unittest.TestCase):
                 for worker in workers: worker.start()
                 for worker in workers: worker.join(timeout=5)
             self.assertFalse(errors)
-            self.assertEqual(results, [target, target])
+            # Windows CI can expose TEMP via an 8.3 alias; the service resolves it.
+            self.assertEqual(results, [target.resolve(), target.resolve()])
             self.assertEqual(len(set(paths)), 2)
             self.assertEqual(target.read_bytes(), b"same-audio")
             self.assertFalse(list(Path(directory).glob("*.part")))
