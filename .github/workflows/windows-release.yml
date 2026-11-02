@@ -62,6 +62,9 @@ jobs:
       - name: Build installer
         if: github.event_name != 'pull_request'
         run: ./packaging/build_installer.ps1
+      - name: Verify installed migration and covering upgrade
+        if: github.event_name != 'pull_request'
+        run: python packaging/test_installer_upgrade.py
       - name: Prepare release files
         if: github.event_name != 'pull_request'
         env:
@@ -81,6 +84,8 @@ jobs:
             .build/maintenance-acceptance/
             .build/installer/installed-self-test.json
             .build/installer/voice-self-test/
+            .build/installer-acceptance/report.json
+            .build/installer-acceptance/*.log
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: github.event_name != 'pull_request'
