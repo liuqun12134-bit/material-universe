@@ -39,6 +39,7 @@ def canvas_asset_references(node):
 class DesktopStore:
     def __init__(self, root):
         self.root = Path(root).resolve()
+        self._check_database_location()
         self.root.mkdir(parents=True, exist_ok=True)
         self.files = self.root / "素材"
         self.files.mkdir(exist_ok=True)
@@ -46,6 +47,14 @@ class DesktopStore:
         db_path = self.root / "history.sqlite3"
         existed = db_path.is_file()
         self.db = sqlite3.connect(db_path, check_same_thread=False)
+        try:
+            # MSIX hosts can redirect a writable open even when the preceding
+            # read resolved to the real file. Never combine that copy with a WAL
+            # from the original directory or write schema changes into it.
+            self._check_database_location()
+        except Exception:
+            self.db.close()
+            raise
         self.db.execute("PRAGMA journal_mode=WAL")
         if (existed and self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='assets'").fetchone()
                 and not self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='asset_groups'").fetchone()):
@@ -63,6 +72,14 @@ class DesktopStore:
         self.db.execute("CREATE TABLE IF NOT EXISTS canvases (id TEXT PRIMARY KEY, body TEXT NOT NULL)")
         self.db.execute("CREATE TABLE IF NOT EXISTS submission_requests (request_id TEXT PRIMARY KEY, job_id TEXT NOT NULL, config_hash TEXT NOT NULL)")
         self.db.commit()
+
+    def _check_database_location(self):
+        for name in ("history.sqlite3", "history.sqlite3-wal", "history.sqlite3-shm"):
+            path = self.root / name
+            if path.exists() and path.resolve().parent != self.root:
+                raise ValueError("当前运行环境将数据库映射到了另一位置，已停止操作以保护原库。"
+                                 "请从 Windows 资源管理器启动素材万象后重试；"
+                                 "Agent 请使用更新指南中的桌面启动方法。")
 
     def _put(self, table, data):
         with self.lock, self.db:
@@ -318,7 +335,7 @@ class DesktopStore:
 
 
 class TaskManager:
-    def __init__(self, store, execute=None, limit=3, changed=None):
+    def __init__(self, store, execute=None, limit=3, changed=None, recover_interrupted=True):
         self.store, self.execute = store, execute or execute_job
         self.limit = max(1, min(10, int(limit)))
         self.changed = changed or (lambda: None)
@@ -340,7 +357,7 @@ class TaskManager:
         except OSError:
             self.owner.close()
             raise ValueError("素材万象已在运行，请使用已打开的窗口。") from None
-        for job in store.jobs():
+        for job in store.jobs() if recover_interrupted else []:
             if job["status"] in ACTIVE:
                 store.update(job["id"], status="paused" if job["status"] == "queued" else "attention",
                              stage="软件已关闭，等待检查并恢复", finished=time.time())

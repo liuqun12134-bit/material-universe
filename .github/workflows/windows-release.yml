@@ -46,6 +46,15 @@ jobs:
         run: |
           choco install ffmpeg --yes --no-progress
           if ($LASTEXITCODE -ne 0) { throw 'FFmpeg install failed' }
+          # Chocolatey's PATH entries are launcher shims, not redistributable
+          # media tools. Bundle the actual executables from the package.
+          $mediaTool = Get-ChildItem -LiteralPath (Join-Path $env:ChocolateyInstall 'lib\ffmpeg\tools') -Filter ffmpeg.exe -Recurse |
+            Where-Object { $_.Length -gt 1MB } | Select-Object -First 1
+          if (-not $mediaTool) { throw 'Actual FFmpeg binary not found' }
+          foreach ($name in @('ffmpeg.exe', 'ffprobe.exe', 'ffplay.exe')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $mediaTool.DirectoryName $name))) { throw "Missing $name" }
+          }
+          $mediaTool.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Offline Python regressions
         run: python -m unittest discover -s skills/video-product-swap/tests -v
       - name: Migration and update UI acceptance

@@ -83,7 +83,8 @@ def _portable_self_test(output_path: Path) -> int:
                 raise RuntimeError(f"Missing bundled tool: {name}")
             probe = subprocess.run([command, "-version"], capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             if probe.returncode:
-                raise RuntimeError(f"Bundled tool failed: {name}")
+                detail = (probe.stderr or probe.stdout).decode("utf-8", errors="replace")[-2000:]
+                raise RuntimeError(f"Bundled tool failed: {name} ({probe.returncode}): {detail}")
         report["bundled_media_tools"] = True
         assert (VIDEO_SKILL_ROOT / "canvas/dist/index.html").is_file()
         report.update(run())

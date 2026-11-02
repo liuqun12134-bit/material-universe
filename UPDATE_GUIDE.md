@@ -24,7 +24,21 @@ $app = Join-Path $env:LOCALAPPDATA 'Programs\MaterialUniverse\素材万象.exe'
 & $app --maintenance --report 'C:\Temp\mu-install.json' install-update
 ```
 
-源码运行时使用 `python skills/video-product-swap/scripts/maintenance.py`，参数相同。源码入口不能自动覆盖安装自身。其他命令：
+源码运行时使用 `python skills/video-product-swap/scripts/maintenance.py`，参数相同。源码入口不能自动覆盖安装自身。
+
+如果 Agent 所在的 Windows 应用对 AppData 做了目录映射，数据库与日志可能落到不同物理目录。软件会在打开数据库前后检查并停止这种操作。不要删除日志、用映射副本覆盖原库，或更改 `--data-root` 去迁就旧副本。可以从资源管理器直接启动软件，在设置中操作；Agent 也可借助已打开的资源管理器窗口启动维护入口：
+
+```powershell
+$windows = (New-Object -ComObject Shell.Application).Windows()
+$explorer = @($windows) | Where-Object { $_.FullName -like '*\explorer.exe' } | Select-Object -First 1
+if (-not $explorer) { throw '请先打开一个 Windows 资源管理器窗口，再执行维护操作。' }
+# 应使用实际安装路径；报告路径应位于 Agent 工作区，且每次使用新文件名。
+$arguments = '--maintenance --report "D:\任务目录\mu-result-001.json" export-libraries "D:\任务目录\素材万象.mu-library.zip"'
+$explorer.Document.Application.ShellExecute($app, $arguments, (Split-Path $app), 'open', 0)
+# 此调用异步返回。等待本次报告出现后，读取 success 和 result/error。
+```
+
+维护入口只取得数据库使用锁，不恢复或重新提交历史生成任务。其他命令：
 
 ```text
 --report RESULT export-libraries DESTINATION --scope all|assets|skills

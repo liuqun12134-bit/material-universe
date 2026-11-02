@@ -45,6 +45,41 @@ class DesktopTasksTests(unittest.TestCase):
         return {"source": str(self.root / "source.mp4"), "output": str(self.root / "output.mp4"),
                 "prompt": "保持原提示词", "options": {"value": 1}}
 
+    def test_redirected_database_is_rejected_before_opening_sqlite(self):
+        real_resolve = Path.resolve
+        database = self.store.root / "history.sqlite3"
+        def redirected(path, *args, **kwargs):
+            if path == database:
+                return self.root / "virtual-cache" / path.name
+            return real_resolve(path, *args, **kwargs)
+        with patch.object(Path, "resolve", redirected), patch("desktop_tasks.sqlite3.connect") as connect:
+            with self.assertRaisesRegex(ValueError, "映射"):
+                DesktopStore(self.store.root)
+            connect.assert_not_called()
+
+    def test_redirected_writable_open_is_closed_before_schema_changes(self):
+        real_resolve = Path.resolve
+        database = self.store.root / "history.sqlite3"
+        with patch("desktop_tasks.sqlite3.connect") as connect:
+            def redirected(path, *args, **kwargs):
+                if path == database and connect.called:
+                    return self.root / "virtual-cache" / path.name
+                return real_resolve(path, *args, **kwargs)
+            with patch.object(Path, "resolve", redirected):
+                with self.assertRaisesRegex(ValueError, "映射"):
+                    DesktopStore(self.store.root)
+            connect.return_value.close.assert_called_once()
+            connect.return_value.execute.assert_not_called()
+
+    def test_maintenance_lock_does_not_change_or_dispatch_unfinished_jobs(self):
+        for state in ("queued", "running"):
+            self.store._put("jobs", {"id": state, "status": state, "created": 1})
+        before = self.store.jobs()
+        manager = TaskManager(self.store, recover_interrupted=False)
+        self.managers.append(manager)
+        self.assertEqual(self.store.jobs(), before)
+        self.assertFalse(manager.pending or manager.active or manager.workers)
+
     def test_ten_shared_slots_queue_isolation_and_failure(self):
         release = threading.Event()
         seen, lock = [], threading.Lock()

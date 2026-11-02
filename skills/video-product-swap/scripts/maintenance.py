@@ -42,7 +42,7 @@ def main(argv=None):
         else:
             store = DesktopStore(args.data_root)
             # Fail when the GUI owns this database. Do not mutate it from a second agent.
-            manager = TaskManager(store)
+            manager = TaskManager(store, recover_interrupted=False)
             transfer = LibraryTransfer(store, args.library_root)
             transfer.recover()
             if args.command == "export-libraries":
