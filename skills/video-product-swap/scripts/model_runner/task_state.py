@@ -19,6 +19,7 @@ class TaskRecord:
     def __init__(self, path: Path):
         self.path = path.expanduser().resolve()
         self.data: dict = {}
+        self.on_update = None
 
     @staticmethod
     def path_for(output: Path) -> Path:
@@ -77,6 +78,8 @@ class TaskRecord:
         try:
             temporary.write_text(json.dumps(self.data, ensure_ascii=False, indent=2), encoding="utf-8")
             temporary.replace(self.path)
+            if self.on_update:
+                self.on_update(dict(self.data), self.path)
         except OSError as exc:
             raise VideoGenerationError(
                 f"任务记录保存失败；请保留任务 ID {self.data.get('task_id', '尚未取得')}，"
@@ -95,7 +98,8 @@ class TaskRecord:
         result = {**result, "task_state_file": str(self.path)}
         downloaded = bool(result.get("local_downloaded"))
         digest = hashlib.sha256(Path(result["output"]).read_bytes()).hexdigest() if downloaded else None
-        self.update(status="completed" if downloaded else "generated", result=result, output_sha256=digest)
+        extra = {"image_base64": None} if downloaded and "image_base64" in self.data else {}
+        self.update(status="completed" if downloaded else "generated", result=result, output_sha256=digest, **extra)
         return result
 
     def completed_result(self):

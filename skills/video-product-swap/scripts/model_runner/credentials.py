@@ -8,6 +8,25 @@ from typing import Any
 from .core import VideoGenerationError
 
 
+# Recovery only: these providers are never added to the generation registry.
+RECOVERY_PROVIDERS = {
+    "kaiyuncode": {
+        "display_name": "开运旧任务",
+        "default_api_base": "https://kaiyuncode.com",
+        "api_base_env": "KAIYUNCODE_API_BASE",
+        "api_key_env": "KAIYUNCODE_API_KEY",
+        "submit_path": "v1/videos",
+    },
+    "dashscope": {
+        "display_name": "阿里旧任务",
+        "default_api_base": "https://dashscope.aliyuncs.com/api/v1",
+        "api_base_env": "DASHSCOPE_API_BASE",
+        "api_key_env": "DASHSCOPE_API_KEY",
+        "submit_path": "",
+    },
+}
+
+
 @dataclass(frozen=True)
 class Credential:
     provider: str
@@ -38,7 +57,7 @@ class CredentialManager:
     def __init__(self, skill_root: Path, providers: dict[str, Any], *, load_env_files: bool = True,
                  values: dict[str, str] | None = None) -> None:
         self.skill_root = skill_root
-        self.providers = providers
+        self.providers = {**RECOVERY_PROVIDERS, **providers}
         # Each invocation owns a snapshot. Never read the caller's working directory
         # or write credentials into process-global state.
         self.values = (dict(values) if values is not None else
@@ -71,7 +90,8 @@ class CredentialManager:
 
     def redact(self, text: str) -> str:
         for name, value in self.values.items():
-            if value and any(part in name.upper() for part in ("KEY", "TOKEN", "SECRET")):
+            # 跳过过短的值：单字符常见值（如 "1"）会把正常报错文本替换坏
+            if value and len(value) >= 4 and any(part in name.upper() for part in ("KEY", "TOKEN", "SECRET")):
                 text = text.replace(value, "***")
         return text
 

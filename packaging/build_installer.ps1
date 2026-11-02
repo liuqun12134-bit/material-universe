@@ -1,4 +1,4 @@
-param(
+﻿param(
     [switch]$SkipDependencyInstall
 )
 
@@ -15,9 +15,10 @@ $specPath = Join-Path $PSScriptRoot "material_universe_installed.spec"
 $installerScript = Join-Path $PSScriptRoot "material_universe_installer.iss"
 $releaseRoot = Join-Path $projectRoot "发行版"
 $installerPath = Join-Path $releaseRoot "素材万象安装程序.exe"
-$historyRoot = Join-Path $releaseRoot "历史版本"
-$historyPath = Join-Path $releaseRoot "版本记录.csv"
-$currentInstallerPath = Join-Path $releaseRoot "当前安装版.json"
+$historyRoot = Join-Path $releaseRoot "历史版本\安装版"
+$metadataRoot = Join-Path $releaseRoot "维护资料\版本信息"
+$historyPath = Join-Path $metadataRoot "版本记录.csv"
+$currentInstallerPath = Join-Path $metadataRoot "当前安装版.json"
 
 function Find-InnoCompiler {
     $candidates = @(
@@ -106,6 +107,7 @@ $env:MATERIAL_UNIVERSE_FFPROBE = $tools["ffprobe"]
 $env:MATERIAL_UNIVERSE_FFPLAY = $tools["ffplay"]
 
 New-Item -ItemType Directory -Path $releaseRoot -Force | Out-Null
+New-Item -ItemType Directory -Path $metadataRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $installerBuildRoot -Force | Out-Null
 
 & $venvPython -m PyInstaller `
@@ -138,6 +140,23 @@ if ($selfTest.ExitCode -ne 0) {
         "没有生成自检报告。"
     }
     throw "安装版程序自检失败：$detail"
+}
+
+$voiceTestRoot = Join-Path $installerBuildRoot "voice-self-test"
+$voiceTest = Start-Process `
+    -FilePath $appPath `
+    -ArgumentList @("--voice-self-test", ('"' + $voiceTestRoot + '"')) `
+    -WindowStyle Hidden `
+    -Wait `
+    -PassThru
+if ($voiceTest.ExitCode -ne 0) {
+    $voiceReportPath = Join-Path $voiceTestRoot "声音成品验收.json"
+    $detail = if (Test-Path -LiteralPath $voiceReportPath) {
+        Get-Content -LiteralPath $voiceReportPath -Raw -Encoding UTF8
+    } else {
+        "没有生成声音自检报告。"
+    }
+    throw "安装版声音自检失败：$detail"
 }
 
 $appFile = Get-Item -LiteralPath $appPath

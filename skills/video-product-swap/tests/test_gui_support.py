@@ -53,23 +53,14 @@ class GuiSupportTests(unittest.TestCase):
         self.assertEqual(command[command.index("--credential-source") + 1], "host-app")
         self.assertIn("--json", command)
 
-    def test_omniflash_requires_public_image_but_keeps_local_video(self) -> None:
+    def test_references_for_swap_uses_local_files(self) -> None:
         references = references_for_swap(
-            "omniflash",
+            "fal_wan3",
             source_video="D:\\source.mp4",
             local_reference_image="D:\\ref.png",
-            public_reference_url="https://example.com/ref.png",
         )
         self.assertEqual(references[0], "video=D:\\source.mp4")
-        self.assertEqual(references[1], "image=https://example.com/ref.png")
-
-    def test_omniflash_never_auto_uses_local_image(self) -> None:
-        with self.assertRaisesRegex(ValueError, "不会擅自上传"):
-            references_for_swap(
-                "omniflash",
-                source_video="D:\\source.mp4",
-                local_reference_image="D:\\ref.png",
-            )
+        self.assertEqual(references[1], "image=D:\\ref.png")
 
 
 if __name__ == "__main__":

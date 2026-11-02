@@ -1,0 +1,95 @@
+name: Windows checks and release
+
+on:
+  push:
+    branches: [main, 'codex/**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: skills/video-product-swap/canvas/package-lock.json
+      - name: Install Python dependencies
+        run: python -m pip install -r skills/video-product-swap/requirements.txt
+      - name: Build and test canvas
+        working-directory: skills/video-product-swap/canvas
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
+          npm test
+          if ($LASTEXITCODE -ne 0) { throw 'Canvas tests failed' }
+          npm run build
+          if ($LASTEXITCODE -ne 0) { throw 'Canvas build failed' }
+      - name: Install media tools
+        run: |
+          choco install ffmpeg --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'FFmpeg install failed' }
+      - name: Offline Python regressions
+        run: python -m unittest discover -s skills/video-product-swap/tests -v
+      - name: Migration and update UI acceptance
+        run: python packaging/test_maintenance_workflow.py .build/maintenance-acceptance
+      - name: Build installer
+        if: github.event_name != 'pull_request'
+        run: ./packaging/build_installer.ps1
+      - name: Prepare release files
+        if: github.event_name != 'pull_request'
+        env:
+          RELEASE_REF: ${{ github.ref }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if ($env:RELEASE_REF.StartsWith('refs/tags/v')) {
+            python packaging/prepare_release.py --tag $env:RELEASE_TAG
+          } else {
+            python packaging/prepare_release.py
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-validation
+          path: |
+            .build/maintenance-acceptance/
+            .build/installer/installed-self-test.json
+            .build/installer/voice-self-test/
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: windows-release
+          path: .build/release-upload/
+          if-no-files-found: error
+  publish:
+    needs: windows
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-release
+          path: release
+      - name: Publish verified installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "$RELEASE_TAG" release/* --verify-tag --title "素材万象 $RELEASE_TAG" --notes-file RELEASE_NOTES.md

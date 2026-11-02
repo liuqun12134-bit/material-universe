@@ -116,6 +116,52 @@ def probe_video(path: Path) -> VideoInfo:
     return VideoInfo(duration, width, height, classify_aspect_ratio(display_width, display_height))
 
 
+def probe_frame_rate(path: Path) -> float:
+    """读取视频平均帧率；供按帧计费的功能（如 FlashVSR）做费用预估。"""
+    if not path.is_file():
+        raise FileNotFoundError(f"找不到视频：{path}")
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        raise RuntimeError("缺少 ffprobe，无法识别视频信息。")
+    result = _run(
+        [ffprobe, "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=avg_frame_rate", "-of", "json", str(path)],
+        "读取视频帧率",
+    )
+    try:
+        raw = json.loads(result.stdout.decode("utf-8"))["streams"][0]["avg_frame_rate"]
+        rate = float(Fraction(str(raw)))
+    except (KeyError, IndexError, TypeError, ValueError, ZeroDivisionError, json.JSONDecodeError) as exc:
+        raise RuntimeError("无法解析视频帧率。") from exc
+    if not math.isfinite(rate) or rate <= 0:
+        raise RuntimeError("视频帧率无效。")
+    return rate
+
+
+def probe_audio_duration(path: Path) -> float:
+    """读取音频时长（秒）；供换口型等功能做时长预检。"""
+    if not path.is_file():
+        raise FileNotFoundError(f"找不到音频：{path}")
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        raise RuntimeError("缺少 ffprobe，无法识别音频信息。")
+    result = _run(
+        [ffprobe, "-v", "error", "-select_streams", "a:0", "-show_entries",
+         "stream=index:format=duration", "-of", "json", str(path)],
+        "读取音频信息",
+    )
+    try:
+        payload = json.loads(result.stdout.decode("utf-8"))
+        if not payload.get("streams"):
+            raise RuntimeError("文件没有音轨。")
+        duration = float(payload["format"]["duration"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise RuntimeError("无法解析音频时长。") from exc
+    if not math.isfinite(duration) or duration <= 0:
+        raise RuntimeError("音频时长无效。")
+    return duration
+
+
 def video_poster(path: Path, size: tuple[int, int]) -> Image.Image:
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:

@@ -96,7 +96,7 @@ def build(project: Path, output: Path, version: str, repository: str) -> dict:
         "本版统一桌面与 Agent 换品流程，配置按调用隔离，并增加 --resume 原任务查询与下载恢复。"
         "独立 Skill 默认仅读取自身 .env，旧版依赖系统环境或同级提示词配置的用户需按安装说明迁移。\n\n"
         "支持通用视频生成及 DeepSeek 分析后调用 Wan3 换品；需要能读取 SKILL.md 并执行本地 Python 的 Agent。"
-        "Python 3.10+；视频换品需要 FFmpeg/ffprobe；使用者自行配置 DeepSeek、Kaiyuncode 或所选官方线路的凭据。\n\n"
+        "Python 3.10+；视频换品需要 FFmpeg/ffprobe；使用者自行配置 DeepSeek 与 fal（FAL_KEY）的凭据。\n\n"
         "包内不含真实 API Key、桌面程序或用户素材。安装检查不发起付费请求。"
         "源码快照及文件校验记录位于包内 package-manifest.json；本发布以 ZIP 内代码为准。\n\n"
         f"### 复制给 Agent\n\n```text\n{instruction}```\n"
@@ -108,7 +108,7 @@ def build(project: Path, output: Path, version: str, repository: str) -> dict:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", type=Path, default=PROJECT)
-    parser.add_argument("--output", type=Path, default=PROJECT / "发行版/Agent-Skill")
+    parser.add_argument("--output", type=Path, default=PROJECT / "发行版/维护资料/Agent-Skill")
     parser.add_argument("--version", default="1.2.0")
     parser.add_argument("--repository", default="liuqun12134-bit/material-universe")
     args = parser.parse_args()

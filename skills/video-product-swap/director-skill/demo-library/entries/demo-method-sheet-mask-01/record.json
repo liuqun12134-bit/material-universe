@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "id": "demo-method-sheet-mask-01",
+  "title": "贴片面膜：按首帧承接展开、贴合与局部抚平",
+  "record_type": "demo",
+  "modes": [
+    "use"
+  ],
+  "category": "贴片面膜",
+  "product_name": null,
+  "product_form": "柔性膜片",
+  "container": "袋装或已取出",
+  "body_part": "面部",
+  "tags": [
+    "展开",
+    "孔位对齐",
+    "真实贴合",
+    "局部抚平"
+  ],
+  "created_on": "2026-11-01",
+  "updated_on": "2026-11-01",
+  "summary": "原有品类规则迁入可检索演示条目；属于设计方法，未附对标视频，不宣称生成验证。",
+  "provenance": {
+    "kind": "authored_method",
+    "description": "来源：seedance25-commerce-use-director 1.0.5 的 mask-action-library.md。",
+    "source_url": null,
+    "source_asset": null,
+    "notes_path": "source-notes.md",
+    "analyzed_on": null,
+    "duration_seconds": null,
+    "time_reliability": "not_applicable",
+    "observation_method": "迁移既有设计规则，无本条对应视频观察。",
+    "limitations": [
+      "不是从本次新视频提取的演示。",
+      "无生成验证与用户成功反馈。"
+    ]
+  },
+  "preconditions": [
+    "已确认是贴片式而非涂抹式。",
+    "首帧袋内/已取出/展开/已贴好状态明确；只选当前阶段所需步骤。",
+    "双手和包装去向可执行，层数、背衬、颜色以本品依据为准。"
+  ],
+  "units": [
+    {
+      "id": "place",
+      "name": "从当前阶段展开并贴合",
+      "source_time": null,
+      "start_conditions": [
+        "需要展开或贴合且双手可用"
+      ],
+      "action": "按真实折叠展开同一片膜布，对齐眼鼻口孔位，从明确区域逐步接触贴合。",
+      "transition": "未接触部分保持受手和重力影响，贴合后保留边缘与孔位。",
+      "end_state": "同一片膜布贴在同一张脸上，局部可能待抚平。",
+      "expected_effect": "展示当前贴合，不代表等待完整敷用时间。",
+      "avoid": [
+        "不额外生出背衬",
+        "不让膜片凭空吸附或孔位漂移"
+      ],
+      "prompt_fragment": "承接首帧的实际展开程度，双手沿本品边缘操作，对齐真实孔位后逐步接触贴合；膜布持续存在，未接触部分随手和重力自然变化。"
+    },
+    {
+      "id": "smooth",
+      "name": "已有膜片的局部抚平",
+      "source_time": null,
+      "start_conditions": [
+        "首帧或上一步已经贴好同一片膜布"
+      ],
+      "action": "对实际可见翘边或褶皱进行一条短路径的轻压抚平，没有问题则直接展示。",
+      "transition": "手离开后保留真实边缘、孔位和必要褶皱。",
+      "end_state": "同一片膜布仍在脸上，局部更贴合。",
+      "expected_effect": "贴合状态改善，不涂化、不瞬间美白。",
+      "avoid": [
+        "不把膜布按摩吸收",
+        "不为制造动作先凭空出现翘边"
+      ],
+      "prompt_fragment": "只对实际存在的局部翘边轻压抚平，随后移开手展示当前贴合状态，膜布边缘和孔位持续存在。"
+    }
+  ],
+  "keyframes": []
+}

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Iterable
-from urllib.parse import urlparse
 
 
 REFERENCE_PREFIXES = {"image", "video", "audio"}
@@ -88,18 +87,8 @@ def references_for_swap(
     local_reference_image: str,
     public_reference_url: str = "",
 ) -> list[str]:
-    normalized_adapter = adapter.strip().lower()
-    public_url = public_reference_url.strip()
-    if normalized_adapter == "omniflash":
-        parsed = urlparse(public_url)
-        if parsed.scheme != "https" or not parsed.netloc:
-            raise ValueError(
-                "OmniFlash 需要参考图的公网 HTTPS 地址；程序不会擅自上传本地参考图。"
-            )
-        image_reference = public_url
-    else:
-        image_reference = local_reference_image
+    """fal 线路统一接受本地素材（适配器自行上传 fal 存储），不再需要公网图。"""
     return [
         normalize_reference("video", source_video),
-        normalize_reference("image", image_reference),
+        normalize_reference("image", local_reference_image),
     ]

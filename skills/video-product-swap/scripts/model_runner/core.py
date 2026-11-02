@@ -58,6 +58,8 @@ class GenerationRequest:
     aspect_ratio: str | None = None
     resolution: str | None = None
     task_record: Any = None
+    options: dict[str, Any] | None = None  # 模型自定义参数（如 FlashVSR 放大倍数）
+    progress: Any = None
 
 
 def infer_kind(value: str) -> tuple[str, str]:

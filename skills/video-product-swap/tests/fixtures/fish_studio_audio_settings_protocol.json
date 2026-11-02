@@ -1,0 +1,11 @@
+{
+  "note": "Sanitized live Fish MCP observations from an isolated free Studio draft on 2026-11-02. No studio_generate or export call was made. Both studio_update_project.audio_settings and studio_write_blocks ops.audio_settings accept flat speed and volume keys. Reads omit these settings; write/read revisions hash them.",
+  "official_web_source": "https://fish.audio/assets/studio-DKbMrOM8.js",
+  "initial_settings": {"speed": 0.9, "volume": -3},
+  "initial_rev": "b4a4c130",
+  "same_settings_rev": "b4a4c130",
+  "changed_volume_settings": {"speed": 0.9, "volume": -2},
+  "changed_volume_rev": "e4a17662",
+  "changed_speed_settings": {"speed": 1.1, "volume": -2},
+  "changed_speed_rev": "6e2898de"
+}

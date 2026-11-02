@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "id": "demo-new-entry",
+  "title": "填写演示名称",
+  "record_type": "demo",
+  "modes": [
+    "use"
+  ],
+  "category": "",
+  "product_name": null,
+  "product_form": null,
+  "container": null,
+  "body_part": null,
+  "tags": [],
+  "created_on": "",
+  "updated_on": "",
+  "summary": "填写可检索摘要",
+  "provenance": {
+    "kind": "video_analysis",
+    "description": "填写真实来源",
+    "source_url": null,
+    "source_asset": null,
+    "notes_path": null,
+    "analyzed_on": null,
+    "duration_seconds": null,
+    "time_reliability": "unknown",
+    "observation_method": "填写实际观察方法",
+    "limitations": []
+  },
+  "preconditions": [],
+  "units": [
+    {
+      "id": "unit-01",
+      "name": "填写单元名称",
+      "source_time": null,
+      "start_conditions": [],
+      "action": "",
+      "transition": "",
+      "end_state": "",
+      "expected_effect": "",
+      "avoid": [],
+      "prompt_fragment": ""
+    }
+  ],
+  "keyframes": []
+}

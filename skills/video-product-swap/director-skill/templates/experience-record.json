@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "id": "experience-new-case",
+  "title": "填写问题案例名称",
+  "record_type": "experience",
+  "modes": [
+    "use"
+  ],
+  "category": "",
+  "product_name": null,
+  "product_form": null,
+  "container": null,
+  "body_part": null,
+  "tags": [],
+  "created_on": "",
+  "updated_on": "",
+  "summary": "",
+  "status": "unconfirmed",
+  "context": {
+    "first_frame_state": "",
+    "problem": "",
+    "model": "unknown",
+    "model_version": null,
+    "duration_seconds": null,
+    "settings": {}
+  },
+  "applicability": [],
+  "unknowns": [],
+  "related_demo_ids": [],
+  "attachments": [],
+  "attempts": [
+    {
+      "id": "attempt-01",
+      "date": "",
+      "observations": [],
+      "hypotheses": [],
+      "changes": [],
+      "prompt_path": null,
+      "outcome": "unverified",
+      "feedback": null
+    }
+  ],
+  "confirmed_attempt": null,
+  "confirmed_scope": []
+}

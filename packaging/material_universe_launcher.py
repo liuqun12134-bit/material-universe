@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -25,6 +26,11 @@ LOG_PATH = APP_DATA_ROOT / "素材万象启动错误.log"
 
 
 def _configure_runtime() -> None:
+    # Windowed executables have no console streams; GUI dependencies may still
+    # write warnings when optional fonts or native integrations are unavailable.
+    for stream in ("stdout", "stderr"):
+        if getattr(sys, stream) is None:
+            setattr(sys, stream, open(os.devnull, "w", encoding="utf-8"))
     os.environ["MATERIAL_UNIVERSE_VIDEO_SKILL_ROOT"] = str(VIDEO_SKILL_ROOT)
     os.environ["MATERIAL_UNIVERSE_WORKSPACE_ROOT"] = str(WORKSPACE_ROOT)
     os.environ["PYTHONUTF8"] = "1"
@@ -66,84 +72,69 @@ def _show_startup_error(error: BaseException) -> None:
 
 
 def _portable_self_test(output_path: Path) -> int:
-    report: dict[str, object] = {
-        "success": False,
-        "frozen": FROZEN,
-        "bundle_root": str(BUNDLE_ROOT),
-        "workspace_root": str(WORKSPACE_ROOT),
-    }
-    root = None
+    from redesign_acceptance import run
+    from app_version import VERSION
+    report = {"version": VERSION}
+    code = 0
     try:
-        from PIL import Image
-        import customtkinter as ctk
-        import dashscope
-        import prompt_engine
-        import generate_video
-        from model_runner.runner import ModelRunner
-        import video_gui
-
-        tools: dict[str, str] = {}
         for name in ("ffmpeg", "ffprobe", "ffplay"):
-            executable = shutil.which(name)
-            if not executable:
-                raise RuntimeError(f"没有找到内置的 {name}。")
-            tools[name] = executable
-        probe = subprocess.run(
-            [tools["ffprobe"], "-version"],
-            capture_output=True,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            check=False,
-        )
-        if probe.returncode != 0:
-            raise RuntimeError("内置 FFprobe 无法运行。")
+            command = shutil.which(name)
+            if not command:
+                raise RuntimeError(f"Missing bundled tool: {name}")
+            probe = subprocess.run([command, "-version"], capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            if probe.returncode:
+                raise RuntimeError(f"Bundled tool failed: {name}")
+        report["bundled_media_tools"] = True
+        assert (VIDEO_SKILL_ROOT / "canvas/dist/index.html").is_file()
+        report.update(run())
+        report["success"] = True
+    except Exception:
+        report["success"] = False
+        report["error"] = traceback.format_exc()
+        code = 1
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    return code
 
-        with Image.open(VIDEO_SKILL_ROOT / "assets" / "material-universe-logo.png") as image:
-            logo_size = image.size
-        with Image.open(VIDEO_SKILL_ROOT / "assets" / "material-universe.ico") as image:
-            icon_format = image.format
 
-        root = ctk.CTk()
-        root.withdraw()
-        app = video_gui.MaterialUniverseApp(root)
-        root.update_idletasks()
-
-        internal_payload = {"success": True, "models": ModelRunner(VIDEO_SKILL_ROOT, values={}).list_models()}
-
-        report.update(
-            {
-                "success": True,
-                "tools": tools,
-                "logo_size": logo_size,
-                "icon_format": icon_format,
-                "models": [item["model"] for item in app.models],
-                "dashscope_version": getattr(dashscope, "__version__", "unknown"),
-                "internal_entries": [
-                    prompt_engine.__name__,
-                    generate_video.__name__,
-                ],
-                "internal_model_count": len(internal_payload.get("models", [])),
-            }
-        )
-        return_code = 0
-    except Exception as exc:
-        report["error"] = str(exc)
-        report["traceback"] = traceback.format_exc()
-        return_code = 1
-    finally:
-        if root is not None:
-            try:
-                root.destroy()
-            except Exception:
-                pass
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    return return_code
+def _voice_self_test(output_dir: Path) -> int:
+    from voice_acceptance import run
+    from app_version import VERSION
+    report = {"version": VERSION}
+    code = 0
+    try:
+        report.update(run(output_dir))
+        report["success"] = True
+    except Exception:
+        report["success"] = False
+        report["error"] = traceback.format_exc()
+        code = 1
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "声音成品验收.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    return code
 
 
 def main() -> int:
     _configure_runtime()
+    if len(sys.argv) > 1 and sys.argv[1] == "--maintenance":
+        from maintenance import main as maintenance_main
+        return maintenance_main(sys.argv[2:])
+    if "--desktop-demo" in sys.argv:
+        from canvas_demo import run_desktop_demo
+        data_root = sys.argv[sys.argv.index("--desktop-demo-data-root") + 1] if "--desktop-demo-data-root" in sys.argv else None
+        return run_desktop_demo(data_root)
+    if len(sys.argv) >= 3 and sys.argv[1] == "--canvas-child":
+        from canvas_window import run_child
+        return run_child(sys.argv[2], embedded="--canvas-embedded" in sys.argv)
+    if "--canvas-demo" in sys.argv:
+        from canvas_demo import run_demo
+        data_root = sys.argv[sys.argv.index("--canvas-demo-data-root") + 1] if "--canvas-demo-data-root" in sys.argv else None
+        return run_demo(data_root, browser_only="--canvas-demo-browser-only" in sys.argv)
     if len(sys.argv) == 3 and sys.argv[1] == "--portable-self-test":
         return _portable_self_test(Path(sys.argv[2]).expanduser().resolve())
+    if len(sys.argv) == 3 and sys.argv[1] == "--voice-self-test":
+        return _voice_self_test(Path(sys.argv[2]).expanduser().resolve())
 
     import video_gui
 
@@ -153,7 +144,14 @@ def main() -> int:
 try:
     exit_code = main()
 except BaseException as exc:
-    _show_startup_error(exc)
+    if "--canvas-child" in sys.argv:
+        detail = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        if len(sys.argv) > 3:
+            Path(sys.argv[3]).write_text(detail, encoding="utf-8")
+        elif sys.stderr:
+            sys.stderr.write(detail)
+    else:
+        _show_startup_error(exc)
     exit_code = 1
 
 raise SystemExit(exit_code)

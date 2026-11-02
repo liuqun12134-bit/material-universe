@@ -1,0 +1,13 @@
+{
+  "id": "example-case",
+  "kind": "experience",
+  "title": "格式示例，使用时替换为真实案例",
+  "topic": "product",
+  "rule": "按场景重建高光与接触阴影",
+  "applicability": ["亮面瓶体的手持换品"],
+  "context": {"task_id": "example-task", "model": "unknown", "settings": {}, "changes": ["重建高光"], "observations": ["示例不代表真实观察"]},
+  "evidence": [{"task_id": "example-task", "source": "model_self_check", "artifact_type": "image", "summary": "格式演示，未验证", "outcome": "unverified", "scope": ["高光融合"]}],
+  "unknowns": ["真实效果"],
+  "related_ids": [],
+  "source_ids": []
+}

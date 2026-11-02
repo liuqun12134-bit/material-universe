@@ -28,7 +28,7 @@ class AgentSkillPackageTests(unittest.TestCase):
         cls.env = {
             key: value for key, value in os.environ.items()
             if not key.upper().endswith(("_KEY", "_TOKEN"))
-            and not key.startswith(("MATERIAL_UNIVERSE_", "PYTHONPATH", "VIDEO_SWAP_", "KAIYUNCODE_", "DEEPSEEK_", "DASHSCOPE_"))
+            and not key.startswith(("MATERIAL_UNIVERSE_", "PYTHONPATH", "VIDEO_SWAP_", "KAIYUNCODE_", "DEEPSEEK_", "DASHSCOPE_", "FAL_"))
         }
         cls.env["PYTHONIOENCODING"] = "utf-8"
         cls.source = cls.root / "source.mp4"

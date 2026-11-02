@@ -1,57 +1,150 @@
 {
   "models": [
     {
-      "id": "wan3.0",
-      "api_model": "wan3.0",
-      "aliases": [],
-      "provider": "kaiyuncode",
-      "adapter": "wan3",
-      "input_summary": "至少一张图片；本地文件或公网 HTTPS 图片、视频、音频"
+      "id": "dashscope-wan3.0-video",
+      "api_model": "wan3.0-video",
+      "aliases": [
+        "aliyun-wan3"
+      ],
+      "provider": "dashscope",
+      "adapter": "dashscope_wan3",
+      "label": "Wan3 阿里官方",
+      "input_summary": "阿里官方 Wan3 文本/视频/图片/音频参考生成；时长 2–30 秒，参考视频总时长加输出不超过30秒"
     },
     {
-      "id": "wan3.0-prime",
-      "api_model": "wan3.0-prime",
-      "aliases": [],
-      "provider": "kaiyuncode",
-      "adapter": "wan3",
-      "input_summary": "至少一张图片；本地文件或公网 HTTPS 图片、视频、音频"
+      "id": "dashscope-wan3.0-video-prime",
+      "api_model": "wan3.0-video-prime",
+      "aliases": [
+        "aliyun-wan3-prime"
+      ],
+      "provider": "dashscope",
+      "adapter": "dashscope_wan3",
+      "label": "Wan3 Prime 阿里官方",
+      "input_summary": "阿里官方 Wan3 Prime；支持文本及多模态参考，时长 2–30 秒"
     },
     {
       "id": "wan3.0-video",
-      "api_model": "wan3.0-video",
-      "aliases": ["wan3"],
-      "provider": "kaiyuncode",
-      "adapter": "wan3",
-      "input_summary": "Wan3 视频参考模型；原视频加至少一张产品参考图"
+      "api_model": "alibaba/wan-3.0/reference-to-video",
+      "aliases": [
+        "wan3"
+      ],
+      "provider": "fal",
+      "adapter": "fal_wan3",
+      "label": "Wan3 视频参考（换品）",
+      "input_summary": "Wan3 参考生成；原视频加至少一张产品参考图，时长 2-30 秒"
     },
     {
-      "id": "wan3.0-video-prime",
+      "id": "wan3.0-t2v",
+      "api_model": "alibaba/wan-3.0/text-to-video",
+      "aliases": [
+        "wan3-t2v"
+      ],
+      "provider": "fal",
+      "adapter": "fal_wan3_t2v",
+      "label": "Wan3 文生视频",
+      "input_summary": "Wan3 纯文本生成；不接受参考文件，时长 2-30 秒"
+    },
+    {
+      "id": "flux-schnell",
+      "api_model": "fal-ai/flux/schnell",
+      "aliases": [
+        "flux-schnell-image"
+      ],
+      "provider": "fal",
+      "adapter": "fal_flux_schnell",
+      "label": "FLUX Schnell 文生图",
+      "input_summary": "纯文本生成一张 PNG 图片；可选图片尺寸，不接受参考文件"
+    },
+    {
+      "id": "sync_lipsync",
+      "api_model": "fal-ai/sync-lipsync/v3",
+      "aliases": [
+        "sync3",
+        "lipsync"
+      ],
+      "provider": "fal",
+      "adapter": "fal_sync3",
+      "label": "Sync3 换口型",
+      "input_summary": "Sync3 换口型：1个视频（MP4/MOV/WebM，≤600秒，≤4K）+ 1段音频（MP3/WAV/M4A/AAC，≤600秒）；输出时长取两者较短（cut_off），约$8/分钟"
+    },
+    {
+      "id": "flashvsr_upscale",
+      "api_model": "fal-ai/flashvsr/upscale/video",
+      "aliases": [
+        "flashvsr",
+        "repair"
+      ],
+      "provider": "fal",
+      "adapter": "fal_flashvsr",
+      "label": "FlashVSR 画质修复",
+      "input_summary": "FlashVSR 视频画质修复：1个视频（MP4/MOV/WebM），固定2倍放大+色彩校正+保留原音轨；按输出像素计费 $0.0005/百万像素"
+    },
+    {
+      "id": "kaiyuncode-wan3.0-video",
+      "api_model": "wan3.0-video",
+      "aliases": [],
+      "provider": "kaiyuncode",
+      "adapter": "kaiyuncode_wan3",
+      "label": "Wan3 标准版",
+      "input_summary": "文本/图片/视频/音频参考生成，2–30 秒"
+    },
+    {
+      "id": "kaiyuncode-wan3.0-video-prime",
       "api_model": "wan3.0-video-prime",
       "aliases": [],
       "provider": "kaiyuncode",
-      "adapter": "wan3",
-      "input_summary": "至少一张图片；本地文件或公网 HTTPS 图片、视频、音频"
+      "adapter": "kaiyuncode_wan3",
+      "label": "Wan3 Prime",
+      "input_summary": "文本/图片/视频/音频参考生成，2–30 秒"
     },
     {
-      "id": "omni_video_edit",
-      "api_model": "omni_video_edit",
-      "aliases": ["omniflash", "omni-flash"],
+      "id": "kaiyuncode-seedance-2.5-tj",
+      "api_model": "seedance-2.5-tj",
+      "aliases": [
+        "seedance-2.5-tj"
+      ],
       "provider": "kaiyuncode",
-      "adapter": "omniflash",
-      "input_summary": "一个本地 MP4 源视频和至少一个公网 HTTPS 参考图"
+      "adapter": "kaiyuncode_seedance",
+      "label": "Seedance 2.5 TJ",
+      "input_summary": "多参考视频，最多30图/10视频/10音频；参考视频和音频各2–14秒；特价模型仅支持720p"
     },
     {
-      "id": "wan-official-videoedit",
-      "api_model": "wan2.7-videoedit",
-      "aliases": ["wan-official", "wan2.7-videoedit"],
-      "provider": "dashscope",
-      "adapter": "dashscope_videoedit",
-      "input_summary": "Wan 官方 VideoEdit；一个本地或公网视频，加 1-4 张本地或公网参考图"
+      "id": "kaiyuncode-omni",
+      "api_model": "omni",
+      "aliases": [
+        "omni"
+      ],
+      "provider": "kaiyuncode",
+      "adapter": "kaiyuncode_omni",
+      "label": "Omni",
+      "input_summary": "文生视频，4/6/8/10 秒，16:9 或 9:16"
+    },
+    {
+      "id": "kaiyuncode-gemini-nano-banana-2.1",
+      "api_model": "gemini-nano-banana-2.1",
+      "aliases": [
+        "gemini-nano-banana-2.1"
+      ],
+      "provider": "kaiyuncode",
+      "adapter": "kaiyuncode_image",
+      "label": "Nano Banana 2.1",
+      "input_summary": "文生图或最多 16 张参考图生图，1K/2K/4K，每次一张"
+    },
+    {
+      "id": "kaiyuncode-omni_video_edit",
+      "api_model": "omni_video_edit",
+      "aliases": [
+        "omni_video_edit"
+      ],
+      "provider": "kaiyuncode",
+      "adapter": "kaiyuncode_omni_edit",
+      "label": "Omni 视频编辑",
+      "input_summary": "一个 MP4 原视频（最长30秒），编辑提示词及最多5张本地/公网参考图（本地图经24小时临时公开上传），输出时长跟随原视频"
     }
   ],
   "fallback": {
-    "provider": "kaiyuncode",
-    "adapter": "generic",
-    "input_summary": "兼容模式：本地文件或公网 HTTPS 图片、视频、音频"
+    "provider": "fal",
+    "adapter": "fal_generic",
+    "input_summary": "fal 兼容模式：本地文件上传 fal 存储或公网 HTTPS 地址"
   }
 }

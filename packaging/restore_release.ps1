@@ -1,4 +1,4 @@
-param(
+﻿param(
     [switch]$ListOnly
 )
 
@@ -6,7 +6,7 @@ $ErrorActionPreference = "Stop"
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $releaseRoot = Join-Path $projectRoot "发行版"
-$historyRoot = Join-Path $releaseRoot "历史版本"
+$historyRoot = Join-Path $releaseRoot "历史版本\便携版"
 $activePath = Join-Path $releaseRoot "素材万象.exe"
 
 if (-not (Test-Path -LiteralPath $historyRoot)) {

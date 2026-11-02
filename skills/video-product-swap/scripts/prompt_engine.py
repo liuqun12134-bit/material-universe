@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -26,7 +27,7 @@ TEMPLATE = (
 ANALYSIS_INSTRUCTION = """
 你是一个严格的产品位置分类器和产品尺寸关系文字整理器。
 你只做两件事：
-1. 按从左到右、从上到下的时间顺序观察参考视频抽取的画面，识别主要产品出现时所处的位置。
+1. 先按从左到右、从上到下的时间顺序观察参考视频的 12 帧时间序列图，再结合后面的原尺寸单帧，识别主要产品出现时所处的位置。
 2. 把用户提供的体积或外形尺寸关系整理成简短、明确、可直接放进换品提示词的一句话。
 
 不分析参考图，不识别品牌、外观或材质，不根据画面估算尺寸，不规划编辑，不生成视频，不评价效果。
@@ -38,7 +39,7 @@ ANALYSIS_INSTRUCTION = """
 {"placements":["in_hand"],"other_location_zh":"","volume_relation_zh":"<根据用户原话整理的体积关系句>"}
 
 placements 可以包含一个或多个值，但每个值只能是：
-- in_hand：产品在人物手中、被人物拿着或握着
+- in_hand：产品在人物手中、被人物拿着、握着，或被手指夹捏；即使产品细长、透明、靠近镜头或被手指部分遮挡，也属于这一类
 - on_table：产品放在桌面、台面或柜台上
 - other：产品位于其他可明确描述的位置
 - uncertain：无法可靠判断位置
@@ -83,9 +84,15 @@ def parse_analysis_response(text: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise RuntimeError("DeepSeek 的分析结果必须是 JSON 对象。")
 
-    raw_placements = payload.get("placements")
-    if not isinstance(raw_placements, list) or not raw_placements:
-        raise RuntimeError("DeepSeek 的位置结果缺少 placements。")
+    if "placements" not in payload:
+        keys = [key for key in payload if isinstance(key, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,31}", key)]
+        fields = f"返回字段：{', '.join(keys[:4])}。" if keys else ""
+        raise RuntimeError(f"视频位置分析结果不完整：缺少 placements 字段。{fields}尚未提交视频生成。")
+    raw_placements = payload["placements"]
+    if not isinstance(raw_placements, list):
+        raise RuntimeError("视频位置分析结果格式错误：placements 必须是数组。尚未提交视频生成。")
+    if not raw_placements:
+        raise RuntimeError("视频位置分析结果不完整：placements 是空数组。尚未提交视频生成。")
 
     placements: list[str] = []
     for value in raw_placements:
@@ -217,6 +224,28 @@ def _make_storyboard(video_path: Path, output_path: Path) -> None:
         raise RuntimeError("没有生成有效的参考视频时间序列图。")
 
 
+def _make_detail_frames(video_path: Path, directory: Path) -> list[Path]:
+    """Keep original video detail at early, middle, and late moments."""
+    if not shutil.which("ffmpeg"):
+        raise RuntimeError("缺少 ffmpeg，无法从参考视频抽帧。")
+    duration = _video_duration(video_path)
+    paths: list[Path] = []
+    for index, fraction in enumerate((1 / 6, 1 / 2, 5 / 6), start=1):
+        output_path = directory / f"detail_{index}.jpg"
+        _run_checked(
+            [
+                "ffmpeg", "-hide_banner", "-loglevel", "error",
+                "-ss", f"{duration * fraction:.6f}", "-i", str(video_path),
+                "-frames:v", "1", "-q:v", "2", "-y", str(output_path),
+            ],
+            "抽取参考视频原尺寸画面",
+        )
+        if not output_path.is_file() or output_path.stat().st_size == 0:
+            raise RuntimeError("没有生成有效的参考视频原尺寸画面。")
+        paths.append(output_path)
+    return paths
+
+
 def _api_content_text(payload: dict[str, Any]) -> str:
     try:
         content = payload["choices"][0]["message"]["content"]
@@ -252,25 +281,27 @@ def analyze_video_and_relation(
         storyboard_path = Path(temp_dir) / "storyboard.jpg"
         print("正在从参考视频抽取 12 帧时间序列图……", file=sys.stderr)
         _make_storyboard(video_path, storyboard_path)
-        image_b64 = base64.b64encode(storyboard_path.read_bytes()).decode("ascii")
+        detail_paths = _make_detail_frames(video_path, Path(temp_dir))
         instruction = ANALYSIS_INSTRUCTION.replace(
             "{volume_relation_input}",
             json.dumps(volume_relation_input, ensure_ascii=False),
         )
+        content: list[dict[str, Any]] = [
+            {"type": "text", "text": instruction},
+            {"type": "text", "text": "图 1：12 帧时间序列图，按从左到右、从上到下观看。"},
+            _image_part(storyboard_path),
+        ]
+        for index, path in enumerate(detail_paths, start=1):
+            content.extend((
+                {"type": "text", "text": f"图 {index + 1}：原尺寸代表帧 {index}/3。"},
+                _image_part(path),
+            ))
         request_body = {
             "model": model,
             "messages": [
                 {
                     "role": "user",
-                    "content": [
-                        {"type": "text", "text": instruction},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{image_b64}",
-                            },
-                        },
-                    ],
+                    "content": content,
                 }
             ],
             "stream": False,
@@ -300,6 +331,11 @@ def analyze_video_and_relation(
             raise RuntimeError("DeepSeek API 没有返回有效 JSON。") from exc
 
     return parse_analysis_response(_api_content_text(response_payload))
+
+
+def _image_part(path: Path) -> dict[str, Any]:
+    image_b64 = base64.b64encode(path.read_bytes()).decode("ascii")
+    return {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}}
 
 
 def build_prompt(location: str, volume_relation: str) -> str:

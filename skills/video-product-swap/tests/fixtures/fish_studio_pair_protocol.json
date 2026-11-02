@@ -1,0 +1,41 @@
+{
+  "note": "Sanitized shape captured from one free app-account Studio draft on 2026-11-02. No paid generation was called.",
+  "created": {
+    "project_id": "fixture-project",
+    "chapters": [{"anchor": "starter"}],
+    "instructions": "Project created. studio_read_blocks to see anchors, studio_generate(dry_run=true) for a cost quote."
+  },
+  "updated": {
+    "name": "素材万象双版本接口验证",
+    "default_voice_id": "fixture-voice",
+    "default_backend": "drama-3",
+    "scene_preset": "off"
+  },
+  "chapter": {"anchor": "chapter", "title": "双版本口播"},
+  "written": {
+    "results": [
+      {"op_index": 0, "status": "ok", "anchor": "block-a", "rev": "content-rev"},
+      {"op_index": 1, "status": "ok", "anchor": "block-b", "rev": "content-rev"}
+    ],
+    "note": "New anchors are in the results; use them in later calls"
+  },
+  "read": {
+    "chapter": {"anchor": "chapter", "title": "双版本口播"},
+    "blocks": [
+      {"anchor": "block-a", "rev": "content-rev", "voice": "示例音色", "text": "这是一段双版本接口验证文案。", "kind": "text", "dirty": true},
+      {"anchor": "block-b", "rev": "content-rev", "voice": "示例音色", "text": "这是一段双版本接口验证文案。", "kind": "text", "dirty": true}
+    ]
+  },
+  "project": {
+    "project_id": "fixture-project",
+    "name": "素材万象双版本接口验证",
+    "default_backend": "drama-3",
+    "roster": [{"name": "示例音色", "voice_id": "fixture-voice", "blocks": 3, "is_default": true}],
+    "chapters": [
+      {"anchor": "starter", "title": "Chapter 1", "blocks": 1, "dirty": 0, "duration_s": 0.0},
+      {"anchor": "chapter", "title": "双版本口播", "blocks": 2, "dirty": 2, "duration_s": 0.0}
+    ]
+  },
+  "quote": {"blocks_to_generate": 1, "cached": 0, "estimated_credits": 42, "balance": 1000},
+  "balance": {"package_balance": 1000, "package_extra_balance": 100}
+}

@@ -18,10 +18,11 @@
 | 用途 | 服务 | 本地配置 |
 | --- | --- | --- |
 | 视频换品的视觉分析 | DeepSeek，固定 `deepseek-v4-flash-vision-exp` | `DEEPSEEK_API_BASE`、`DEEPSEEK_API_KEY` |
-| 视频换品或通用 Wan3 | Kaiyuncode 中转，`wan3.0-video` | `KAIYUNCODE_API_BASE`、`KAIYUNCODE_API_KEY` |
-| 通用 Wan 官方视频编辑 | 阿里云 DashScope，`wan2.7-videoedit` | `DASHSCOPE_API_BASE`、`DASHSCOPE_API_KEY` |
+| 视频换品与通用视频生成 | fal（queue.fal.run），换品默认 `wan3.0-video` | `FAL_API_BASE`、`FAL_KEY` |
+| Wan3 官方视频生成与换品 | 阿里云 DashScope | `DASHSCOPE_API_BASE`、`DASHSCOPE_API_KEY` |
+| Wan3、Seedance 2.5 TJ、Omni、Omni 视频编辑、Nano Banana 2.1 生图 | KaiyunCode | `KAIYUNCODE_API_BASE`、`KAIYUNCODE_API_KEY` |
 
-视频换品需要分别配置 DeepSeek 与 Kaiyuncode；仅使用通用模式时配置所选服务即可。不同服务的 Key 独立，不凭 Key 猜线路、不自动切换服务。接口可用性和额度取决于使用者账号，安装成功不代表服务账号已获授权。
+视频换品自动分析时需要配置 DeepSeek 与选定的生成服务；使用已有提示词或通用模式时只需配置选定的生成服务。不同服务的 Key 独立，不凭 Key 猜线路、不自动切换服务。KaiyunCode 的参数及 Omni 本地参考图临时公开上传流程见 [接口说明](kaiyuncode.md)。接口可用性和额度取决于使用者账号，安装成功不代表服务账号已获授权。
 
 独立调用时，全部模型配置只读本 Skill 根目录 `.env`，不读当前工作目录、其他 Skill 或系统环境里的 Key。桌面通过参数传入自身配置快照。若 Agent 宿主明确管理环境变量，可使用 `--credential-source host-app`，此时只使用进程提供的值，不读 `.env`。
 

@@ -46,3 +46,19 @@ Thumbs.db
 *.video-task.json*
 *.mp4.part
 /发行版/Agent-Skill/*.zip
+
+# Private libraries and local verification output are never application releases.
+.workbuddy/
+node_modules/
+**/canvas/dist/
+*.tsbuildinfo
+*.mu-library.zip
+**/fish-oauth.dat
+**/history.sqlite3*
+/发行版/历史版本/
+/发行版/维护资料/
+/skills/video-product-swap/director-skill/demo-library/entries/*
+!/skills/video-product-swap/director-skill/demo-library/entries/demo-method-sheet-mask-01/
+/skills/video-product-swap/director-skill/demo-library/index.json
+/skills/video-product-swap/director-skill/experience-library/
+/维护工具/项目检查报告*.md

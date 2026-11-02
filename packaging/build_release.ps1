@@ -1,3 +1,7 @@
+﻿param(
+    [switch]$SkipDependencyInstall
+)
+
 $ErrorActionPreference = "Stop"
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
@@ -9,9 +13,10 @@ $productName = -join [char[]](0x7D20, 0x6750, 0x4E07, 0x8C61)
 $releaseRoot = Join-Path $projectRoot $releaseFolderName
 $specPath = Join-Path $PSScriptRoot "material_universe.spec"
 $exePath = Join-Path $releaseRoot ($productName + ".exe")
-$historyRoot = Join-Path $releaseRoot "历史版本"
-$historyPath = Join-Path $releaseRoot "版本记录.csv"
-$currentVersionPath = Join-Path $releaseRoot "当前版本.json"
+$historyRoot = Join-Path $releaseRoot "历史版本\便携版"
+$metadataRoot = Join-Path $releaseRoot "维护资料\版本信息"
+$historyPath = Join-Path $metadataRoot "版本记录.csv"
+$currentVersionPath = Join-Path $metadataRoot "当前版本.json"
 
 function Get-SafeVersion([System.IO.FileInfo]$File) {
     $version = $File.VersionInfo.ProductVersion
@@ -58,10 +63,12 @@ if (-not (Test-Path -LiteralPath $venvPython)) {
     python -m venv $venvRoot
 }
 
-& $venvPython -m pip install --disable-pip-version-check --upgrade pip
-& $venvPython -m pip install --disable-pip-version-check `
-    -r (Join-Path $projectRoot "skills\video-product-swap\requirements.txt") `
-    "pyinstaller>=6.18,<7"
+if (-not $SkipDependencyInstall) {
+    & $venvPython -m pip install --disable-pip-version-check --upgrade pip
+    & $venvPython -m pip install --disable-pip-version-check `
+        -r (Join-Path $projectRoot "skills\video-product-swap\requirements.txt") `
+        "pyinstaller>=6.18,<7"
+}
 
 $tools = @{}
 foreach ($name in @("ffmpeg", "ffprobe", "ffplay")) {
@@ -81,6 +88,7 @@ $env:MATERIAL_UNIVERSE_FFPROBE = $tools["ffprobe"]
 $env:MATERIAL_UNIVERSE_FFPLAY = $tools["ffplay"]
 
 New-Item -ItemType Directory -Path $releaseRoot -Force | Out-Null
+New-Item -ItemType Directory -Path $metadataRoot -Force | Out-Null
 Save-CurrentRelease
 & $venvPython -m PyInstaller `
     --noconfirm `

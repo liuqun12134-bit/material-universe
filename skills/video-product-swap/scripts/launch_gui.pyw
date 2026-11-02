@@ -37,7 +37,14 @@ try:
 
     exit_code = video_gui.main()
 except BaseException as exc:
-    show_startup_error(exc)
+    if "--canvas-child" in sys.argv:
+        detail = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        if len(sys.argv) > 3:
+            Path(sys.argv[3]).write_text(detail, encoding="utf-8")
+        elif sys.stderr:
+            sys.stderr.write(detail)
+    else:
+        show_startup_error(exc)
     exit_code = 1
 
 raise SystemExit(exit_code)
