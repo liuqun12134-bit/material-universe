@@ -57,6 +57,19 @@ def check_update(current=VERSION, session=None):
             if response.status_code == 404:
                 return {"available": False, "message": "尚未发布可下载的正式版本。"}
             release = _json_response(response)
+        # This repository also publishes standalone Skills. Their release tags
+        # must not hide the latest application release or be offered as updates.
+        if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", str(release.get("tag_name", ""))):
+            with _get(session, API + "/releases?per_page=100", stream=True) as response:
+                releases = _json_response(response)
+            if not isinstance(releases, list):
+                raise ValueError("更新发布列表无效。")
+            candidates = [item for item in releases if isinstance(item, dict)
+                          and not item.get("draft") and not item.get("prerelease")
+                          and re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", str(item.get("tag_name", "")))]
+            if not candidates:
+                return {"available": False, "message": "尚未发布可下载的正式版本。"}
+            release = max(candidates, key=lambda item: version_tuple(item["tag_name"][1:]))
         tag = release.get("tag_name", "")
         version = tag.removeprefix("v")
         if release.get("draft") or release.get("prerelease") or tag != "v" + version:

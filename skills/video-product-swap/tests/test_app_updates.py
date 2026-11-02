@@ -52,6 +52,17 @@ class UpdateTests(unittest.TestCase):
         self.release["prerelease"] = True
         with self.assertRaises(ValueError): updates.check_update(session=self.session())
 
+    def test_standalone_skill_releases_do_not_hide_application_updates(self):
+        skill = {"tag_name": "skill-video-product-swap-v1.2.0"}
+        releases = [skill, self.release, {"tag_name": "v9.0.0", "prerelease": True}]
+        def get(url, **_):
+            content = (skill if url.endswith("/latest") else releases if "per_page=" in url else self.manifest)
+            return Response(url, json.dumps(content).encode())
+        session = Mock(get=Mock(side_effect=get))
+        self.assertEqual(updates.check_update(session=session)["version"], "1.11.0")
+        releases[:] = [skill]
+        self.assertFalse(updates.check_update(session=session)["available"])
+
     def test_untrusted_urls_and_manifest_format_are_rejected(self):
         self.release["assets"][1]["browser_download_url"] = "https://evil.example/install.exe"
         with self.assertRaises(ValueError): updates.check_update(session=self.session())
