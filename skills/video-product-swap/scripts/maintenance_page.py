@@ -4,7 +4,7 @@ from __future__ import annotations
 import threading
 from datetime import datetime
 from pathlib import Path
-from tkinter import StringVar, filedialog, messagebox
+from tkinter import StringVar, Toplevel, filedialog, messagebox
 
 import customtkinter as ctk
 
@@ -52,7 +52,9 @@ class MaintenancePage:
         if self._maintenance_busy or self._exit_in_progress:
             return
         self._maintenance_busy = True
-        window = self._maintenance_window = ctk.CTkToplevel(self.root)
+        # Native Toplevel has no delayed titlebar/focus callbacks that can outlive
+        # a very fast operation and target an already destroyed progress window.
+        window = self._maintenance_window = Toplevel(self.root, bg="#F5F5F7")
         window.title(title); window.geometry("460x150"); window.resizable(False, False)
         window.transient(self.root); window.grab_set()
         window.protocol("WM_DELETE_WINDOW", lambda: None)
