@@ -2670,6 +2670,7 @@ class MaterialUniverseApp(DesktopPages, ImageAudioPage, DirectorPage, VoicePage,
         def after_canvas(saved):
             if not saved:
                 self._exit_in_progress = False
+                self._update_on_exit = None
                 self._show_page("canvas")
                 messagebox.showerror("画布尚未保存", "请在创作画布处理保存失败的问题后再退出。", parent=self.root)
                 return
@@ -2701,6 +2702,7 @@ class MaterialUniverseApp(DesktopPages, ImageAudioPage, DirectorPage, VoicePage,
             self.canvas_window.request_stop(after_canvas)
         except Exception as exc:
             self._exit_in_progress = False
+            self._update_on_exit = None
             messagebox.showerror("画布尚未保存", f"画布关闭失败：{exc}", parent=self.root)
 
 

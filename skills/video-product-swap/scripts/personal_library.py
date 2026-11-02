@@ -142,8 +142,9 @@ def merge(source, destination):
             original_id = record["id"]
             identity = original_id
             previous = existing.get(identity)
+            conflict = False
             if previous and signature(*previous) != signature(path, record):
-                stats["conflicts"] += 1
+                conflict = True
                 identity = original_id + "-import-" + signature(path, record)[:12]
             remap[original_id] = identity
             record["id"] = identity
@@ -164,6 +165,7 @@ def merge(source, destination):
             atomic_json(target / "record.json", record)
             existing[identity] = (target / "record.json", record)
             stats["added"] += 1
+            stats["conflicts"] += int(conflict)
     for path in sorted((source / "learning").rglob("*.json")):
         state = json.loads(path.read_text(encoding="utf-8-sig"))
         if (not isinstance(state, dict) or state.get("schema_version") != 1 or type(state.get("enabled")) is not bool

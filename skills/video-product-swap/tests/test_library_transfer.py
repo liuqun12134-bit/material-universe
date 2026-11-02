@@ -186,5 +186,41 @@ class LibraryTransferTests(unittest.TestCase):
         with self.assertRaises(ValueError): LibraryTransfer(self.target, self.target.root)
         with self.assertRaises(ValueError): LibraryTransfer(self.target, self.target.files / "personal")
 
+    def test_experience_references_follow_imported_conflict_copy(self):
+        self.demo(self.outgoing.root, "新演示")
+        self.demo(self.incoming.root, "旧演示")
+        record = json.loads((RULES / "templates/experience-record.json").read_text(encoding="utf-8"))
+        record.update(category="面膜", summary="一次未确认的经验", created_on="2026-11-02", updated_on="2026-11-02",
+                      applicability=["面膜"], related_demo_ids=["demo-method-sheet-mask-01"])
+        record["context"].update(first_frame_state="手持面膜", problem="需保持连续")
+        record["attempts"][0]["date"] = "2026-11-02"
+        path = self.outgoing.root / "experience-library/entries/experience-new-case/record.json"
+        atomic_json(path, record); reindex(self.outgoing.root)
+        prepared = self.prepared()
+        self.incoming.import_bundle(prepared)
+        experience = collect(self.incoming.root)["experience"][0][1]
+        target_id = experience["related_demo_ids"][0]
+        self.assertIn("-import-", target_id)
+        demo = {d["id"]: d for _, d in collect(self.incoming.root)["demo"]}[target_id]
+        self.assertEqual(demo["title"], "新演示")
+        preview = self.incoming.preview(prepared)
+        self.assertEqual(preview["skills"]["added"], 0)
+        self.assertEqual(preview["skills"]["conflicts"], 0)
+
+    def test_update_backup_and_post_start_check_leave_task_identity_unchanged(self):
+        from app_updates import backup_for_update, verify_after_update
+        from app_version import VERSION
+        from contextlib import closing
+        import sqlite3
+        self.asset(self.target)
+        self.demo(self.incoming.root)
+        self.target._put("jobs", {"id": "paid-existing", "created": 0, "status": "attention", "task_id": "provider-existing-id"})
+        before = self.target.jobs()
+        result = backup_for_update(self.incoming, VERSION)
+        with closing(sqlite3.connect(Path(result["backup"]) / "history.sqlite3")) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM assets").fetchone()[0], 1)
+        self.assertIn("已检查", verify_after_update(self.incoming))
+        self.assertEqual(self.target.jobs(), before)
+
 
 if __name__ == "__main__": unittest.main()
