@@ -20,7 +20,10 @@ from image_audio_video import MEDIA_FIELDS, IMAGE_FIELDS, generation_args, diges
 
 def main():
     report = {}
-    with tempfile.TemporaryDirectory() as temp, patch("requests.sessions.Session.request", side_effect=AssertionError("Network not allowed")):
+    scratch = ROOT / ".build/creation-reset-test-temp"
+    scratch.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=scratch) as temp, patch("requests.sessions.Session.request", side_effect=AssertionError("Network not allowed")), \
+            patch.object(MaterialUniverseApp, "_ensure_tray"):
         folder = Path(temp)
         root = ctk.CTk()
         root.withdraw()
@@ -77,9 +80,11 @@ def main():
                 return snapshot, config
             # Cancel is free; changing a form while a quote is in flight invalidates it.
             with patch("image_audio_page.messagebox.askyesno", return_value=False) as approve:
+                original = app._fish_form()
                 app.fish_busy = True
                 app._handle_fish_event(("quote", *quote(), None))
                 assert approve.called and not app.desktop_store.jobs()
+                assert app._fish_form() == original
             snapshot, config = quote()
             app.fish_ratio.set("16:9")
             with patch("image_audio_page.messagebox.askyesno") as approve:
@@ -87,25 +92,70 @@ def main():
                 assert not approve.called and not app.desktop_store.jobs()
             app.fish_ratio.set("9:16")
             report["cancel_and_quote_invalidation"] = True
-            # Three paid intents: two workers, one queue; form available immediately.
-            with patch("image_audio_page.messagebox.askyesno", return_value=True), patch("image_audio_page.messagebox.showinfo"):
-                for _ in range(3):
+            # Each confirmed task starts a clean form; explicit reuse restores inputs.
+            with patch("image_audio_page.messagebox.askyesno", return_value=True), patch("image_audio_page.messagebox.showinfo"), \
+                    patch("image_audio_page.messagebox.showerror"):
+                for index in range(3):
+                    if index:
+                        app._fish_reuse(config)
+                        pump_until(lambda: len(app.fish_media) == 4)
+                    app.fish_ratio.set("16:9"); app.fish_resolution.set("720p"); app.fish_duration.set("6")
+                    app.director_mode.set("边讲边用")
+                    app.director_requirements.insert(0, "上一个产品的涂抹要求")
+                    app.director_result = {"prompt": "旧稿", "transcript": "旧台词"}
+                    app.director_undo = ("旧提示词", "旧稿")
+                    app.director_undo_button.configure(state="normal")
+                    app.director_view_button.configure(state="normal")
+                    app._toggle_director()
+                    tokens, media = dict(app.fish_load_tokens), copy.deepcopy(app.fish_media)
+                    snapshot, config = quote()
+                    request_id = app.fish_submit_id
                     app.fish_busy = True
-                    app._handle_fish_event(("quote", *quote(), None))
+                    if index == 0:
+                        submit = app.tasks.submit
+                        def lost_reply(*args, **kwargs):
+                            submit(*args, **kwargs); raise OSError("lost local reply")
+                        with patch.object(app.tasks, "submit", side_effect=lost_reply):
+                            app._handle_fish_event(("quote", snapshot, config, None))
+                        assert app._fish_form() == snapshot and app.fish_pending_config
+                        assert app.fish_submit_id == request_id and app.director_undo
+                        app._fish_submit()  # Resolve the same saved request, without duplicating it.
+                    else:
+                        app._handle_fish_event(("quote", snapshot, config, None))
                     assert not app.fish_busy
+                    assert not app.fish_media and not app.fish_load_tokens and not app.fish_previews
+                    assert app.fish_prompt.get("1.0", "end-1c") == ""
+                    assert (app.fish_ratio.get(), app.fish_resolution.get(), app.fish_duration.get()) == ("9:16", "480p", "")
+                    assert app.fish_audio_player.path is None and app.fish_play_button.cget("state") == "disabled"
+                    assert app.fish_audio_play_label.get() == "试听"
+                    assert app.director_mode.get() == "请选择导演模式" and not app.director_requirements.get()
+                    assert app.director_result is None and app.director_undo is None
+                    assert not app.director_panel.winfo_manager()
+                    assert all(b.cget("state") == "disabled" for b in (app.director_generate_button, app.director_undo_button, app.director_view_button))
+                    assert app.fish_pending_config is None and app.fish_submit_id != request_id
+                    for field in MEDIA_FIELDS:
+                        app._handle_fish_event(("media", field, tokens[field], media[field], None))
+                        assert app.fish_media_labels[field].get() == "尚未选择"
+                    assert not app.fish_media  # Late checks cannot resurrect the submitted task.
+                    assert not app._director_snapshot()["prompt"] and not app._director_snapshot()["media"]
+                    saved = next(j for j in app.desktop_store.jobs() if j["request_id"] == request_id)["config"]
+                    assert all(saved[f] == snapshot[f] and Path(saved[f]).is_file() for f in MEDIA_FIELDS)
+                    assert saved["prompt"] == snapshot["prompt"] and saved["duration"] == 6
                 assert len(app.tasks.active) == 2 and len(app.tasks.pending) == 1
                 assert len(app.desktop_store.jobs()) == 3
                 before = len(app.desktop_store.jobs())
                 app._fish_submit()  # queued double click is ignored by cooldown.
                 assert len(app.desktop_store.jobs()) == before
             report["two_workers_one_queued_and_double_click_guard"] = True
+            report["reset_materials_prompt_director_defaults_and_ignore_late_media"] = True
+            report["uncertain_submit_preserves_form_then_resolves_same_request"] = True
             config = app.desktop_store.jobs()[0]["config"]
             app.fish_prompt.insert("end", "下一次改动")
             assert "下一次改动" not in app.desktop_store.jobs()[0]["config"]["prompt"]
             report["submitted_configuration_frozen"] = True
             root.attributes("-topmost", True)
             root.deiconify(); root.lift(); root.update()
-            destination = ROOT / "发行版/维护资料/验收记录/1.9.0-创作改版"
+            destination = ROOT / "output/creation-reset-acceptance"
             destination.mkdir(parents=True, exist_ok=True)
             def capture(name):
                 root.update(); time.sleep(.2)

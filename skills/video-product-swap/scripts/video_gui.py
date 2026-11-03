@@ -15,9 +15,11 @@ import uuid
 from desktop_tasks import DesktopStore, TaskManager
 from desktop_pages import DesktopPages
 from image_audio_page import ImageAudioPage
+from ai_image_page import AIImagePage
 from voice_page import VoicePage
 from desktop_tray import DesktopTray
 from maintenance_page import MaintenancePage
+from assistant_page import AssistantPage
 from library_transfer import LibraryTransfer
 from canvas_backend import CanvasService
 from canvas_window import CanvasWindowManager
@@ -359,7 +361,7 @@ class AudioPlayer:
 from director_page import DirectorPage
 
 
-class MaterialUniverseApp(DesktopPages, ImageAudioPage, DirectorPage, VoicePage, MaintenancePage):
+class MaterialUniverseApp(DesktopPages, ImageAudioPage, AIImagePage, DirectorPage, VoicePage, MaintenancePage, AssistantPage):
     def __init__(self, root: ctk.CTk, data_root=None, *, demo=False) -> None:
         self.root = root
         self.demo = demo
@@ -427,6 +429,7 @@ class MaterialUniverseApp(DesktopPages, ImageAudioPage, DirectorPage, VoicePage,
                 migration_note = f"旧 Skill 库未完成迁移，原文件已保留，请在数据与迁移中处理后再次导入：{exc}"
         from app_updates import verify_after_update
         self._library_startup_note = migration_note or verify_after_update(self.library_transfer) or "素材、个人案例与经验独立保存，更新程序会保留。"
+        self._init_assistants()
         self.extra_reference_images = []
         self.prompt_mode_var = StringVar(value="重新分析视频")
         self.remove_subtitles_var = BooleanVar(value=False)
@@ -516,6 +519,7 @@ class MaterialUniverseApp(DesktopPages, ImageAudioPage, DirectorPage, VoicePage,
         )
 
         self._init_image_audio(demo=demo)
+        self._init_ai_image()
         self._init_voice()
         self._configure_style()
         self._build_ui()
@@ -612,6 +616,8 @@ class MaterialUniverseApp(DesktopPages, ImageAudioPage, DirectorPage, VoicePage,
         ).pack(fill="x", padx=27, pady=(0, 6))
         self.image_audio_nav = self._nav_button(sidebar, "图音生视频", lambda: self._show_page("image_audio"))
         self.image_audio_nav.pack(fill="x", padx=14, pady=3)
+        self.ai_image_nav = self._nav_button(sidebar, "AI 生图", lambda: self._show_page("ai_image"))
+        self.ai_image_nav.pack(fill="x", padx=14, pady=3)
         self.voice_nav = self._nav_button(sidebar, "声音克隆", lambda: self._show_page("voice"))
         self.voice_nav.pack(fill="x", padx=14, pady=3)
         self.canvas_nav = self._nav_button(sidebar, "创作画布", self._open_canvas)
@@ -647,6 +653,7 @@ class MaterialUniverseApp(DesktopPages, ImageAudioPage, DirectorPage, VoicePage,
         content.grid_columnconfigure(0, weight=1)
         self.edit_tab = ctk.CTkFrame(content, fg_color=BG, corner_radius=0)
         self.image_audio_tab = ctk.CTkFrame(content, fg_color=BG, corner_radius=0)
+        self.ai_image_tab = ctk.CTkFrame(content, fg_color=BG, corner_radius=0)
         self.voice_tab = ctk.CTkFrame(content, fg_color=BG, corner_radius=0)
         self.lipsync_tab = ctk.CTkFrame(content, fg_color=BG, corner_radius=0)
         self.repair_tab = ctk.CTkFrame(content, fg_color=BG, corner_radius=0)
@@ -661,11 +668,13 @@ class MaterialUniverseApp(DesktopPages, ImageAudioPage, DirectorPage, VoicePage,
         self.library_tab.grid(row=0, column=0, sticky="nsew")
         self.edit_tab.grid(row=0, column=0, sticky="nsew")
         self.image_audio_tab.grid(row=0, column=0, sticky="nsew")
+        self.ai_image_tab.grid(row=0, column=0, sticky="nsew")
         self.voice_tab.grid(row=0, column=0, sticky="nsew")
         self.lipsync_tab.grid(row=0, column=0, sticky="nsew")
         self.repair_tab.grid(row=0, column=0, sticky="nsew")
         self.api_tab.grid(row=0, column=0, sticky="nsew")
         self._build_image_audio_page()
+        self._build_ai_image_page()
         self._build_voice_page()
         self._build_api_tab()
         self._build_task_pages()
@@ -696,6 +705,7 @@ class MaterialUniverseApp(DesktopPages, ImageAudioPage, DirectorPage, VoicePage,
             return
         pages = {
             "image_audio": (self.image_audio_nav, self.image_audio_tab),
+            "ai_image": (self.ai_image_nav, self.ai_image_tab),
             "voice": (self.voice_nav, self.voice_tab),
             "api": (self.api_nav, self.api_tab),
             "history": (self.history_nav, self.history_tab),
@@ -706,6 +716,8 @@ class MaterialUniverseApp(DesktopPages, ImageAudioPage, DirectorPage, VoicePage,
             self.canvas_window.hide()
         if page not in pages:
             return
+        if self.current_page == "ai_image":
+            self._ai_save()
         active, visible_tab = pages[page]
         for name, (nav, tab) in pages.items():
             if name == page:
@@ -725,7 +737,8 @@ class MaterialUniverseApp(DesktopPages, ImageAudioPage, DirectorPage, VoicePage,
         if page == "history": self._refresh_history()
         if page == "library": self._refresh_library()
         if page == "voice": self._voice_on_show()
-        if page in {"image_audio", "api"} and not self.fish_workspaces and not self.demo:
+        if page == "ai_image": self._ai_on_show()
+        if page in {"image_audio", "ai_image", "api"} and not self.fish_workspaces and not self.demo:
             from fish_mcp import FishAuth
             try:
                 if FishAuth(self.fish_auth_path).connected():
@@ -1652,6 +1665,7 @@ class MaterialUniverseApp(DesktopPages, ImageAudioPage, DirectorPage, VoicePage,
             workspace, "选择文件夹", self._choose_workspace_output_dir, width=108
         ).grid(row=1, column=1, pady=(6, 0))
 
+        self._build_assistant_settings(page)
         self._build_maintenance_settings(page)
         self._build_fish_settings(page)
         _, queue = self._card(page, "任务队列", "所有创作功能共享并发上限。")
@@ -1659,9 +1673,9 @@ class MaterialUniverseApp(DesktopPages, ImageAudioPage, DirectorPage, VoicePage,
         ctk.CTkLabel(queue, text="最多同时执行").pack(side="left", padx=(0, 14))
         ctk.CTkOptionMenu(queue, variable=self.concurrency_var, values=[str(i) for i in range(1, 11)], width=90, command=self._set_concurrency).pack(side="left")
 
-        _, prompt = self._card(page, "智能提示词 · Kaiyun GPT-6.1 Sol", "按 SD2.5 导演规则编排；共用下方 KaiyunCode 服务的 API 地址与 Key，仅点击智能提示词时调用。")
+        _, prompt = self._card(page, "AI 助手 · Kaiyun GPT-6.1 Sol", "AI 美工、AI 导演与学习分析共用下方 KaiyunCode 账户，按调用用量计费。")
         prompt.grid_columnconfigure(1, weight=1)
-        self._api_row(prompt, 0, "用途", label="图片理解与导演提示词编排")
+        self._api_row(prompt, 0, "用途", label="AI 美工、AI 导演与学习建议")
         self._api_row(prompt, 1, "模型", label="gpt-6.1-sol")
         self._api_row(prompt, 2, "账户配置", label="在下方 KaiyunCode 服务中填写 API 地址与 API Key")
 
@@ -1688,7 +1702,7 @@ class MaterialUniverseApp(DesktopPages, ImageAudioPage, DirectorPage, VoicePage,
             }
             model_names = "仅查询、下载已有任务；不用于新生成" if recovery_only else "、".join(models_by_provider.get(provider, []))
             if provider == "kaiyuncode":
-                model_names = "智能提示词（gpt-6.1-sol）、" + model_names
+                model_names = "AI 助手（gpt-6.1-sol）、" + model_names
             self._api_row(frame, 0, "当前功能", label=model_names)
             self._api_row(frame, 1, "API 地址", variable=base_var)
             self._api_row(frame, 2, "API Key", variable=key_var, secret=True)
@@ -2210,6 +2224,7 @@ class MaterialUniverseApp(DesktopPages, ImageAudioPage, DirectorPage, VoicePage,
             return
         self.tasks.stop()
         self._closed = True
+        self._ai_close_display()
         if self.tray:
             self.tray.stop()
         self.root.destroy()
@@ -2453,6 +2468,7 @@ class MaterialUniverseApp(DesktopPages, ImageAudioPage, DirectorPage, VoicePage,
                 if kind == "tasks_changed":
                     self._refresh_history()
                     self._refresh_submission_feedback()
+                    self._ai_jobs_changed()
                     if self.current_page == "library": self._refresh_library()
                 elif kind == "maintenance_event":
                     self._handle_maintenance_event(payload)
@@ -2462,6 +2478,10 @@ class MaterialUniverseApp(DesktopPages, ImageAudioPage, DirectorPage, VoicePage,
                     self._finish_history_sync(payload)
                 elif kind == "fish_event":
                     self._handle_fish_event(payload)
+                elif kind == "ai_image_event":
+                    self._handle_ai_image_event(payload)
+                elif kind == "assistant_event":
+                    self._handle_assistant_event(payload)
                 elif kind == "voice_event":
                     self._handle_voice_event(payload)
                 elif kind == "assets_changed":
@@ -2654,9 +2674,16 @@ class MaterialUniverseApp(DesktopPages, ImageAudioPage, DirectorPage, VoicePage,
     def _request_exit(self) -> None:
         if self._closed or self._exit_in_progress:
             return
+        if getattr(self, "_assistant_busy", False):
+            messagebox.showinfo("正在处理学习资料", "请等学习或反馈保存完成再退出；关闭窗口可继续在后台处理。", parent=self.root)
+            return
         if getattr(self, "_maintenance_busy", False):
             messagebox.showinfo("正在处理数据", "请等当前迁移或下载完成后再退出。", parent=self.root)
             return
+        if getattr(self, "ai_image_busy", False) or getattr(self, "ai_model_busy", False):
+            messagebox.showinfo("图片正在处理", "请等当前看图或上传完成再退出；关闭窗口可继续在后台处理。", parent=self.root)
+            return
+        self._ai_save()
         if getattr(self, "voice_busy", False) or getattr(self, "voice_clone_busy", False):
             self._restore_window()
             messagebox.showinfo("声音正在处理", "请等当前声音处理完成后退出，以便保存生成结果。关闭窗口可继续在后台处理。", parent=self.root)
@@ -2692,7 +2719,7 @@ class MaterialUniverseApp(DesktopPages, ImageAudioPage, DirectorPage, VoicePage,
             self._closed = True
             self._shutdown_errors = []
             cleanup = ([self.tray.stop] if self.tray else []) + [
-                self.tasks.stop, self.fish_audio_player.stop, self.voice_player.stop, self.root.destroy]
+                self.tasks.stop, self._ai_close_display, self.fish_audio_player.stop, self.voice_player.stop, self.root.destroy]
             for close in cleanup:
                 try:
                     close()

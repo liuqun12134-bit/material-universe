@@ -57,18 +57,10 @@ def run(output_dir=None):
         def snapshot():
             form = app._voice_form()
             prepared = {**copy.deepcopy(form), "output": str(folder / "outputs/声音合成.wav"),
-                        "connection_id": "offline-connection", "fish_quote": {
-                            "credits": 90, "version_credits": [45, 45], "balance": 1000, "created": time.time()},
-                        "variants": []}
-            for index, block in enumerate(("block-a", "block-b"), 1):
-                prepared["variants"].append({**copy.deepcopy(form), "output": str(folder / f"outputs/版本-{index}.wav"),
-                    "connection_id": "offline-connection", "variant_backend": "studio", "variant_index": index,
-                    "variant_label": f"版本 {'AB'[index - 1]}", "studio_project_id": "offline-project",
-                    "studio_block": block, "studio_revision": "revision-one", "fish_quote": {
-                        "credits": 45, "arguments": {"project_id": "offline-project", "blocks": [block],
-                            "force": True, "only_dirty": False}, "text": form["text"], "voice_id": form["voice_id"],
-                        "model": "drama-3", "speed": form["speed"], "volume_db": form["volume_db"],
-                        "audio_settings_mode": "fish", "created": time.time()}})
+                        "connection_id": "offline-connection", "variant_backend": "tts", "fish_quote": {
+                            "credits": 45, "balance": 1000, "created": time.time(),
+                            "arguments": {"text": form["text"], "voice_id": form["voice_id"], "model": "drama-3"},
+                            "speed": 1., "volume_db": 0., "audio_settings_mode": "fish"}}
             return form, prepared
 
         def quote_event(form, prepared, error=None):
@@ -123,19 +115,14 @@ def run(output_dir=None):
             app.voice_text.insert("1.0", "今天用温柔、自然的语气，讲解这款产品。")
             app._voice_update_char_count()
             assert app.voice_speed.get() == 1.0 and app.voice_volume.get() == 0.0
-            for name, low, high in (("语速", .7, 1.3), ("音量", -5., 5.)):
-                slider = app.voice_control_sliders[name]
-                assert slider.cget("from_") == low and slider.cget("to") == high
-                slider.set(low - 1)
-                assert slider.get() == low
-                slider.set(high + 1)
-                assert slider.get() == high
+            assert not app.voice_control_sliders
+            assert not app.voice_result_widgets[1]["card"].winfo_ismapped()
             app._voice_reset_controls()
             assert app.voice_speed.get() == 1.0 and app.voice_volume.get() == 0.0
-            result["fish_control_ranges_and_reset_defaults"] = True
+            result["single_result_and_original_audio_settings"] = True
             app.voice_speed.set(1.25); app.voice_volume.set(-2)
             form, prepared = snapshot()
-            assert form["model"] == "drama-3" and form["speed"] == 1.25 and form["volume_db"] == -2
+            assert form["model"] == "drama-3" and form["speed"] == 1. and form["volume_db"] == 0.
             assert form["audio_settings_mode"] == "fish" and "volume" not in form
             with patch.object(app, "_voice_worker") as worker:
                 app._voice_submit()
@@ -146,10 +133,12 @@ def run(output_dir=None):
                     patch.object(app.tasks, "submit") as submit:
                 quote_event(form, copy.deepcopy(prepared))
                 question.assert_called_once(); submit.assert_not_called()
-                assert "-2.0 dB" in question.call_args.args[1]
+                assert "一条" in question.call_args.args[1] and "45" in question.call_args.args[1]
+                assert "原速、原音量" in question.call_args.args[1]
             assert not app.voice_busy and app.voice_submit_button.cget("state") == "normal"
             assert "取消" in app.voice_status.get()
-            result["fixed_drama3_adjustable_controls_and_cancelled_quote"] = True
+            assert "草稿" not in app.voice_status.get()
+            result["fixed_drama3_single_audio_and_cancelled_quote"] = True
 
             app.voice_text.insert("end", "新增一句。")
             app._voice_update_char_count()
@@ -173,9 +162,9 @@ def run(output_dir=None):
                 assert app.voice_busy
                 app._voice_submit()
                 worker.assert_called_once()
-            result["one_pair_worker_no_video_queue_and_double_click_guard"] = True
+            result["one_speech_worker_no_video_queue_and_double_click_guard"] = True
             jobs = []
-            for index, variant in enumerate(prepared["variants"], 1):
+            for index, variant in enumerate([prepared], 1):
                 output = folder / f"版本-{'AB'[index - 1]}.wav"
                 with wave.open(str(output), "wb") as audio:
                     audio.setnchannels(1); audio.setsampwidth(2); audio.setframerate(16000)
@@ -186,19 +175,19 @@ def run(output_dir=None):
                     "result": {"output": str(output), "output_kind": "audio", "duration": index,
                         "local_downloaded": True, "audio_url": f"https://example.invalid/result-{index}.wav"}})
             partial = copy.deepcopy(jobs)
-            partial[1].update(status="failed", stage="版本 B 尚未完成", error="服务连接中断，未自动重新生成", result={})
+            partial[0].update(status="failed", stage="音频尚未完成", error="服务连接中断，未自动重新生成", result={})
             app._handle_voice_event(("batch_progress", metadata, partial, None)); pump()
-            assert app.voice_result_widgets[0]["play"].cget("state") == "normal"
-            assert app.voice_result_widgets[1]["play"].cget("state") == "disabled"
-            assert app.voice_result_widgets[0]["save"].cget("state") == "normal"
-            app._handle_voice_event(("batch_done", metadata, partial, None)); pump()
+            assert app.voice_result_widgets[0]["play"].cget("state") == "disabled"
+            assert not app.voice_result_widgets[1]["card"].winfo_ismapped()
+            assert "未自动重新生成" in app.voice_result_widgets[0]["note"].cget("text")
+            app._handle_voice_event(("batch_done", metadata, jobs, None)); pump()
             assert not app.voice_busy and app.voice_result_jobs[0]["result"]["local_downloaded"]
-            capture("声音合成-部分失败.png")
-            result["partial_failure_keeps_successful_version_available"] = True
+            assert app.voice_submit_button.cget("text") == "再生成一条"
+            result["single_result_status_and_error_display"] = True
             for job in jobs:
                 app.desktop_store._put("jobs", job)
             app._voice_render_results(jobs); pump()
-            for widgets in app.voice_result_widgets:
+            for widgets in app.voice_result_widgets[:1]:
                 assert widgets["play"].cget("state") == "normal"
                 assert widgets["save"].cget("state") == "normal" and widgets["library"].cget("state") == "normal"
             with patch.object(app.voice_player, "load") as load, patch.object(app.voice_player, "start") as start:
@@ -206,10 +195,20 @@ def run(output_dir=None):
                 load.assert_called_once_with(Path(jobs[0]["result"]["output"])); start.assert_called_once()
             with patch.object(app, "_save_task_result") as save, patch.object(app.desktop_store, "import_asset") as library:
                 app.voice_result_widgets[0]["save"].invoke()
-                app.voice_result_widgets[1]["library"].invoke()
+                app.voice_result_widgets[0]["library"].invoke()
                 save.assert_called_once_with(jobs[0]["result"]["output"])
-                library.assert_called_once_with(jobs[1]["result"]["output"])
-            result["two_inline_players_save_and_import_actions"] = True
+                library.assert_called_once_with(jobs[0]["result"]["output"])
+            result["single_inline_player_save_and_import_actions"] = True
+            legacy_pair = [copy.deepcopy(jobs[0]), copy.deepcopy(jobs[0])]
+            legacy_pair[1]["variant_index"] = 2
+            for old in legacy_pair:
+                old["config"]["variant_backend"] = "studio"
+            app._voice_render_results(legacy_pair); pump()
+            assert app.voice_result_widgets[1]["card"].winfo_ismapped()
+            assert app.voice_result_widgets[1]["play"].cget("state") == "normal"
+            app._voice_render_results(jobs); pump()
+            assert not app.voice_result_widgets[1]["card"].winfo_ismapped()
+            result["legacy_pair_results_remain_accessible"] = True
             long_voice = {**voices[2], "description": "这段音色适合安静室内的产品讲解，声音轻柔，停顿自然，重点词语清楚。" * 3}
             root.geometry("1080x740"); pump()
             app._voice_select(long_voice); pump()
@@ -221,13 +220,13 @@ def run(output_dir=None):
             result["long_selected_voice_note_keeps_editor_usable"] = True
             for geometry in ("1080x740", "1440x900"):
                 root.geometry(geometry); pump(); app._voice_layout_changed(); pump()
-                for widget in [app.voice_submit_button] + [w[key] for w in app.voice_result_widgets for key in ("play", "save", "library")]:
+                for widget in [app.voice_submit_button] + [w[key] for w in app.voice_result_widgets[:1] for key in ("play", "save", "library")]:
                     assert widget.winfo_ismapped()
                     assert widget.winfo_rooty() + widget.winfo_height() <= root.winfo_rooty() + root.winfo_height() + 2
                     assert widget.winfo_rootx() + widget.winfo_width() <= root.winfo_rootx() + root.winfo_width() + 2
                 assert app.voice_text.winfo_height() >= 60
                 capture(f"声音合成-{geometry}.png")
-            result["controls_and_both_results_visible_without_page_scrolling"] = True
+            result["single_result_visible_without_page_scrolling"] = True
 
             app._voice_open_clone(); pump()
             assert app.voice_clone_dialog.winfo_exists()
@@ -304,7 +303,7 @@ def run(output_dir=None):
             def labels_in(widget):
                 labels = [widget.cget("text")] if isinstance(widget, ctk.CTkLabel) else []
                 return labels + [text for child in widget.winfo_children() for text in labels_in(child)]
-            assert any("-2.0 dB" in text for text in labels_in(app.history_drawer))
+            assert any("+0.0 dB" in text for text in labels_in(app.history_drawer))
             capture("声音合成-使用记录.png")
             app._reuse_selected(); pump()
             assert app.current_page == "voice" and app.voice_view.get() == "声音合成"
@@ -312,14 +311,14 @@ def run(output_dir=None):
             assert app._voice_form()["voice_id"] == prepared["voice_id"]
             assert app._voice_form()["speed"] == prepared["speed"]
             assert app._voice_form()["volume_db"] == prepared["volume_db"]
-            assert len(app.desktop_store.jobs()) == 3
+            assert len(app.desktop_store.jobs()) == 2
             result["audio_history_details_and_reuse_preserve_voice_and_controls"] = True
             legacy = {"text": "旧版文案", "voice_id": prepared["voice_id"], "speed": 2., "volume": 200.}
             app._voice_reuse(legacy); pump()
-            assert app._voice_form()["speed"] == 1.3 and app._voice_form()["volume_db"] == 5.
-            assert "旧版" in app.voice_status.get() and "核对" in app.voice_status.get()
+            assert app._voice_form()["speed"] == 1. and app._voice_form()["volume_db"] == 0.
+            assert "一条" in app.voice_status.get() and "原速" in app.voice_status.get()
             assert legacy["speed"] == 2. and legacy["volume"] == 200.
-            result["legacy_reuse_converts_volume_and_clamps_without_changing_history"] = True
+            result["legacy_reuse_resets_controls_without_changing_history"] = True
             resumed = copy.deepcopy(jobs[0])
             resumed["config"].update(speed=.9, volume=80.)
             resumed["config"].pop("audio_settings_mode", None)

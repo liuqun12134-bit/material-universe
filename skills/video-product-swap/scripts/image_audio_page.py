@@ -157,9 +157,9 @@ class ImageAudioPage:
         self._fish_account_worker(login=False)
 
     def _fish_account_worker(self, login):
-        if self.fish_login_busy or self.fish_busy or self.director_busy or self.voice_busy or self.voice_clone_busy:
+        if self.fish_login_busy or self.fish_busy or self.director_busy or self.voice_busy or self.voice_clone_busy or (getattr(self, "ai_image_busy", False) or getattr(self, "ai_model_busy", False)):
             return
-        if login and any(job["kind"] in {"image_audio", "speech"} and job["status"] in {"queued", "running"} for job in self.desktop_store.jobs()):
+        if login and any(job["kind"] in {"image_audio", "ai_image", "image_fission", "speech"} and job["status"] in {"queued", "running"} for job in self.desktop_store.jobs()):
             messagebox.showinfo("任务执行中", "请等待 Fish Audio 任务结束后再切换授权账户。", parent=self.root)
             return
         self.fish_login_busy = True
@@ -189,6 +189,27 @@ class ImageAudioPage:
                 "aspect_ratio": self.fish_ratio.get(), "resolution": self.fish_resolution.get(),
                 "workspace_id": self.fish_workspaces.get(self.fish_workspace.get(), ""),
                 "workspace_name": self.fish_workspace.get()}
+
+    def _fish_reset_form(self):
+        # Invalidate media checks before clearing widgets so late imports cannot
+        # select the previous task's files again.
+        self.fish_load_tokens.clear()
+        self.fish_media.clear()
+        self.fish_audio_player.stop()
+        self.fish_audio_player.path = None
+        self.fish_play_button.configure(state="disabled")
+        for field in MEDIA_FIELDS:
+            self.fish_media_labels[field].set("尚未选择")
+            if field in IMAGE_FIELDS:
+                widget = self.fish_image_widgets[field]
+                widget.configure(image=None, text="JPG / PNG / WebP")
+                widget._label.configure(image="")
+        self.fish_previews.clear()
+        self.fish_prompt.delete("1.0", "end")
+        self.fish_ratio.set("9:16")
+        self.fish_resolution.set("480p")
+        self.fish_duration.set("")
+        self._reset_director()
 
     def _fish_submit(self):
         if self.fish_busy or self.fish_login_busy or self.director_busy or time.monotonic() < self.fish_not_before:
@@ -235,10 +256,11 @@ class ImageAudioPage:
             self.fish_status.set("本地提交尚未确认，点击会核对原任务，不会重复提交。")
             messagebox.showerror("创建任务失败", str(exc), parent=self.root)
             return
-        self.fish_status.set("已加入使用记录，可继续生成其他视频。")
-        self._refresh_history()
         try:
-            messagebox.showinfo("任务已提交", "图音生视频已加入队列，请在「使用记录」查看进度。\n\n确认后可继续提交其他视频，各功能共享并发上限。", parent=self.root)
+            self._fish_reset_form()
+            self.fish_status.set("已加入使用记录，素材与提示词已清空，生成设置已恢复默认，可开始下一任务。")
+            self._refresh_history()
+            messagebox.showinfo("任务已提交", "图音生视频已加入队列，请在「使用记录」查看进度。\n\n素材、提示词和导演状态已清空，生成设置已恢复默认，可继续准备下一任务。", parent=self.root)
         finally:
             self.fish_submit_id = uuid.uuid4().hex
             self.fish_pending_config = None

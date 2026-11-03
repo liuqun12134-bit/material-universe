@@ -24,6 +24,8 @@ class StudioClient:
         self.paid = []
         self.lose_response = False
         self.remaining = False
+        self.projects = []
+        self.chapters = []
 
     def __enter__(self): return self
     def __exit__(self, *_): pass
@@ -31,21 +33,34 @@ class StudioClient:
     def call(self, name, args):
         self.calls.append((name, copy.deepcopy(args)))
         if name == "studio_help": return {"skill": "documented workflow"}
-        if name == "studio_create_project": return {"project_id": "project"}
+        if name == "studio_list_projects":
+            return {"projects": copy.deepcopy(self.projects), "has_next": False}
+        if name == "studio_create_project":
+            project = {"project_id": "project", "name": args["name"]}
+            self.projects.append(project)
+            return copy.deepcopy(project)
         if name == "studio_update_project":
             self.backend = args["default_backend"]
             return {"status": "ok"}
-        if name == "studio_create_chapter": return {"anchor": "chapter"}
+        if name == "studio_create_chapter":
+            chapter = {"anchor": "chapter-" + str(len(self.chapters) + 1), "title": args["title"]}
+            self.chapters.append(chapter)
+            return copy.deepcopy(chapter)
         if name == "studio_write_blocks":
-            for index, op in enumerate(args["ops"], 1):
+            added = []
+            for op in args["ops"]:
+                index = len(self.blocks) + 1
                 self.blocks.append({"anchor": str(index), "rev": "rev" + str(index), "text": op["text"],
                                     "voice": op["voice"], "backend": self.backend, "dirty": True,
+                                    "chapter": op["append_to"],
                                     "audio_settings": copy.deepcopy(op["audio_settings"])})
+                added.append(self.blocks[-1])
             return {"results": [{"status": "ok", "anchor": b["anchor"], "rev": b["rev"]}
-                                for b in self.blocks]}
+                                for b in added]}
         if name == "studio_read_blocks":
             return {"blocks": [copy.deepcopy(b) for b in self.blocks
-                               if not args.get("blocks") or b["anchor"] in args["blocks"]]}
+                               if (not args.get("blocks") or b["anchor"] in args["blocks"])
+                               and (not args.get("chapter") or b["chapter"] == args["chapter"])]}
         if name == "studio_generate":
             if args["dry_run"]:
                 return {"dry_run": True, "credits": self.price, "blocks_to_generate": 1}
@@ -92,6 +107,7 @@ class VoicePairServiceTests(unittest.TestCase):
         def call(name, args):
             calls.append((name, args))
             if name == "studio_help": return {"skill": "manual"}
+            if name == "studio_list_projects": return {"projects": [], "has_next": False}
             if name == "studio_generate": self.assertTrue(args["dry_run"])
             return copy.deepcopy(fixture[responses[name]])
         client.call = call
@@ -132,7 +148,7 @@ class VoicePairServiceTests(unittest.TestCase):
             result = pair.prepare_pair({**self.config(directory), "speed": .9, "volume_db": -3}, client)
             settings = {"speed": .9, "volume": -3}
             update = next(args for name, args in client.calls if name == "studio_update_project")
-            self.assertEqual(update["audio_settings"], settings)
+            self.assertNotIn("audio_settings", update)
             self.assertEqual([b["audio_settings"] for b in client.blocks], [settings, settings])
             for variant in result["variants"]:
                 self.assertEqual(variant["studio_audio_settings"], settings)
@@ -141,6 +157,100 @@ class VoicePairServiceTests(unittest.TestCase):
                 variant["cost_approved"] = True
                 self.assertEqual(pair.validate_variant(variant)["volume_db"], -3)
             self.assertFalse(client.paid)
+
+    def test_repeated_tasks_reuse_project_and_preserve_old_chapters_and_quotes(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(pair, "_media_tool", return_value="ffmpeg"):
+            client = StudioClient()
+            first = self.prepare(directory, client)
+            old_blocks = copy.deepcopy(client.blocks)
+            second = pair.prepare_pair({**self.config(directory), "text": "第二次任务",
+                                        "voice_id": "another-voice", "speed": .8, "volume_db": 3}, client)
+            self.assertEqual(first["studio_project_id"], second["studio_project_id"])
+            self.assertEqual(len(client.projects), 1)
+            self.assertEqual(client.projects[0]["name"], pair.PROJECT_NAME)
+            self.assertEqual(len({c["title"] for c in client.chapters}), 2)
+            self.assertEqual(client.blocks[:2], old_blocks)
+            self.assertEqual([b["voice"] for b in client.blocks[2:]], ["another-voice"] * 2)
+            self.assertEqual([b["audio_settings"] for b in client.blocks[2:]], [{"speed": .8, "volume": 3}] * 2)
+            updates = [args for name, args in client.calls if name == "studio_update_project"]
+            self.assertEqual(updates[1], {"project_id": "project", "default_backend": "drama-3"})
+            quotes = [args["blocks"] for name, args in client.calls if name == "studio_generate"]
+            self.assertEqual(quotes, [["1"], ["2"], ["3"], ["4"]])
+            with patch.object(pair, "download_result", side_effect=finish_download):
+                result = pair.run_variant({"config": first["variants"][0]}, {}, lambda **_: None,
+                                          client_factory=lambda *_: client, max_wait=0)
+            self.assertTrue(result["local_downloaded"])
+            self.assertEqual(client.paid[0]["blocks"], ["1"])
+
+    def test_reconnect_discovers_existing_project_without_local_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            client = StudioClient()
+            self.prepare(directory, client)
+            reconnected = StudioClient()
+            reconnected.connection_id = "new-connection"
+            reconnected.projects = copy.deepcopy(client.projects)
+            self.prepare(directory, reconnected)
+            self.assertFalse(any(name == "studio_create_project" for name, _ in reconnected.calls))
+            other_account = StudioClient()
+            other_account.connection_id = "other-account"
+            self.prepare(directory, other_account)
+            self.assertTrue(any(name == "studio_create_project" for name, _ in other_account.calls))
+
+    def test_deleted_shared_project_is_created_again_but_legacy_projects_are_untouched(self):
+        with tempfile.TemporaryDirectory() as directory:
+            client = StudioClient()
+            legacy = {"project_id": "old", "name": "素材万象双版本-1234567890"}
+            client.projects.append(copy.deepcopy(legacy))
+            self.prepare(directory, client)
+            client.projects = [copy.deepcopy(legacy)]
+            self.prepare(directory, client)
+            self.assertEqual(client.projects[0], legacy)
+            self.assertEqual(len(client.projects), 2)
+            self.assertEqual(sum(name == "studio_create_project" for name, _ in client.calls), 2)
+
+    def test_project_search_checks_later_pages_before_creating(self):
+        client = StudioClient()
+        original = client.call
+        pages = []
+        def paginated(name, args):
+            if name == "studio_list_projects":
+                pages.append(args["page"])
+                return {"projects": [{"project_id": "existing", "name": pair.PROJECT_NAME if args["page"] == 2 else "其他项目"}],
+                        "has_next": args["page"] == 1}
+            return original(name, args)
+        client.call = paginated
+        self.assertEqual(pair._shared_project(client, {"voice_id": "voice"}), "existing")
+        self.assertEqual(pages, [1, 2])
+        self.assertFalse(any(name == "studio_create_project" for name, _ in client.calls))
+
+    def test_failed_or_unknown_listing_never_creates_a_project(self):
+        for response in (FishError("网络错误"), {}, {"projects": [], "has_next": "false"},
+                         {"projects": [], "has_next": True},
+                         {"projects": [None], "has_next": False}):
+            with self.subTest(response=response):
+                client = StudioClient()
+                def failed(name, args):
+                    self.assertEqual(name, "studio_list_projects")
+                    if isinstance(response, Exception):
+                        raise response
+                    return response
+                client.call = failed
+                with self.assertRaises(FishError):
+                    pair._shared_project(client, {"voice_id": "voice"})
+
+    def test_lost_project_creation_response_is_discovered_on_next_attempt(self):
+        client = StudioClient()
+        original = client.call
+        def lost(name, args):
+            response = original(name, args)
+            if name == "studio_create_project":
+                raise FishError("响应中断")
+            return response
+        client.call = lost
+        with self.assertRaises(FishError):
+            pair._shared_project(client, {"voice_id": "voice"})
+        self.assertEqual(pair._shared_project(client, {"voice_id": "voice"}), "project")
+        self.assertEqual(sum(name == "studio_create_project" for name, _ in client.calls), 1)
 
     def test_settings_write_not_acknowledged_or_changed_before_quote_stops(self):
         for change in ("missing_ack", "changed_revision"):

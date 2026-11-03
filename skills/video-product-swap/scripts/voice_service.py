@@ -279,8 +279,7 @@ def speech_arguments(config):
 
 
 def _validate_plain_tts_settings(config):
-    # The plain MCP TTS tool has no numeric prosody fields. The desktop's Studio
-    # route sends them using audio_settings; do not silently drop them here.
+    # Plain MCP TTS has no numeric prosody fields; never silently drop them.
     if config["speed"] != 1 or config["volume_db"] != 0:
         raise ValueError("此合成接口不支持语速和音量参数，请在声音合成页重新预估。")
 
@@ -293,10 +292,17 @@ def _quote(client, args):
         raise FishError("Fish Audio 未返回有效语音报价，未提交合成。")
     if payload.get("has_sufficient_balance") is not True or payload.get("can_generate") is False:
         raise FishError("当前积分不足或套餐不支持本次合成，请检查 Fish Audio 账户。")
-    return {"arguments": args, "credits": credits, "balance": payload.get("balance"), "created": time.time()}
+    if payload.get("model", MODEL) != MODEL:
+        raise FishError("Fish 返回的报价模型与 Drama 3 不一致，未提交合成。")
+    return {"arguments": args, "credits": credits, "balance": payload.get("balance"),
+            "quoted_model": payload.get("model"), "created": time.time()}
 
 
 def prepare_speech(config, client):
+    # A new direct request must not inherit an old Studio draft or approval.
+    config = {key: value for key, value in config.items()
+              if not key.startswith("studio_") and key not in
+              {"variants", "cost_approved", "fish_quote", "batch_id", "variant_index", "variant_label"}}
     config = validate_speech_config(config)
     _validate_plain_tts_settings(config)
     # Verify that decoding and saving the returned audio can run before charging.
@@ -305,7 +311,7 @@ def prepare_speech(config, client):
         raise FishError("请先在设置中连接 Fish Audio。")
     quote = _quote(client, speech_arguments(config))
     quote.update(speed=config["speed"], volume_db=config["volume_db"], audio_settings_mode="fish")
-    config.update(fish_quote=quote, connection_id=client.connection_id)
+    config.update(fish_quote=quote, connection_id=client.connection_id, variant_backend="tts")
     return config
 
 

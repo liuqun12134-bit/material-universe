@@ -18,7 +18,11 @@ def fetch_status(state, credentials):
         with FishClient(credentials.get("FISH_AUTH_PATH")) as client:
             payload = client.call("get_generation_status", {"generation_id": state["task_id"]})
         media = _terminal_media(payload)
-        return str(payload.get("status", "")).lower(), media.get("url") if media else None, payload.get("view_url"), max(10, float(payload.get("poll_after_seconds") or 60))
+        result = (str(payload.get("status", "")).lower(), media.get("url") if media else None,
+                  payload.get("view_url"), max(10, float(payload.get("poll_after_seconds") or 60)))
+        if state["model"].get("adapter") == "fish_image":
+            return (*result, {"media_object_key": media.get("object_key") if media else None})
+        return result
     runner = ModelRunner(credential_source="host-app", values=credentials)
     credential = runner.credentials.resolve(provider)
     if credential.api_base.rstrip("/") != state["api_base"].rstrip("/"):
@@ -80,8 +84,11 @@ def refresh(manager, credentials):
                     counts["cooldown"] += 1
                     continue
                 record.update(next_manual_check=time.time() + 60)
-                status, url, view_url, interval = fetch_status(state, credentials)
+                fetched = fetch_status(state, credentials)
+                status, url, view_url, interval = fetched[:4]
                 fields = {"last_status_check": time.time(), "next_manual_check": time.time() + interval}
+                if len(fetched) > 4 and fetched[4].get("media_object_key"):
+                    fields["media_object_key"] = fetched[4]["media_object_key"]
                 if view_url:
                     fields["view_url"] = view_url
                 if status in {"failed", "failure", "error", "cancelled", "canceled", "rejected"}:

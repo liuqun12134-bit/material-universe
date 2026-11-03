@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import math
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -17,6 +18,41 @@ from model_runner.core import GenerationRequest, ModelSpec
 from model_runner.task_state import TaskRecord
 from voice_service import (MODEL, _audio_urls, _https, _media_tool, download_result,
                            validate_speech_config)
+
+PROJECT_NAME = "素材万象声音合成"
+_project_lock = threading.Lock()
+
+
+def _shared_project(client, config):
+    """Discover in the active account on every preparation, including after restart.
+
+    Never turn a failed/incomplete listing into a create, and never replay a
+    create whose response was lost. The next preparation discovers it remotely.
+    """
+    with _project_lock:
+        for page in range(1, 1001):
+            listing = client.call("studio_list_projects", {"page": page, "page_size": 100})
+            rows = listing.get("projects")
+            if (not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows)
+                    or not isinstance(listing.get("has_next"), bool)
+                    or (listing["has_next"] and not rows)):
+                raise FishError("无法完整核对 Fish 项目列表，尚未新建项目，请稍后重试。")
+            for row in rows:
+                if row.get("name") == PROJECT_NAME:
+                    project = _project_id(row)
+                    # Only the backend for NEW blocks is changed. Project audio
+                    # settings could dirty old chapters; voice/settings are explicit per block.
+                    client.call("studio_update_project", {"project_id": project, "default_backend": MODEL})
+                    return project
+            if not listing["has_next"]:
+                break
+        else:
+            raise FishError("Fish 项目列表过长，未能完整核对，尚未新建项目。")
+        project = _project_id(client.call("studio_create_project", {
+            "name": PROJECT_NAME, "default_voice_id": config["voice_id"], "chapters": []}))
+        client.call("studio_update_project", {"project_id": project,
+                    "default_backend": MODEL, "scene_preset": "off"})
+        return project
 
 
 def _number(value):
@@ -143,7 +179,7 @@ def _quote(client, config):
 
 
 def prepare_pair(config, client, progress=lambda _: None):
-    """Create a free draft and return two precise, independently scoped quotes."""
+    """Add a task chapter to a shared free draft and quote only its two blocks."""
     config = validate_speech_config(config)
     config.pop("cost_approved", None)
     _media_tool("ffmpeg"); _media_tool("ffprobe")
@@ -151,15 +187,8 @@ def prepare_pair(config, client, progress=lambda _: None):
         raise FishError("请先连接 Fish Audio 账户。")
     client.call("studio_help", {"topic": "quickstart"})
     progress("正在准备两个版本的文案")
-    name = "素材万象双版本-" + uuid.uuid4().hex[:10]
-    created = client.call("studio_create_project", {"name": name,
-                           "default_voice_id": config["voice_id"], "chapters": []})
-    project = _project_id(created)
-    # The backend setting applies only to blocks created AFTER this call.
-    client.call("studio_update_project", {"project_id": project, "default_backend": MODEL,
-                 "default_voice_id": config["voice_id"], "scene_preset": "off",
-                 "audio_settings": _audio_settings(config)})
-    chapter_title = "双版本口播"
+    project = _shared_project(client, config)
+    chapter_title = "口播-" + time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
     chapter = _chapter_id(client, project,
         client.call("studio_create_chapter", {"project_id": project, "title": chapter_title}), chapter_title)
     written = client.call("studio_write_blocks", {"project_id": project, "ops": [

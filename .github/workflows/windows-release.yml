@@ -59,6 +59,14 @@ jobs:
         run: python -m unittest discover -s skills/video-product-swap/tests -v
       - name: Migration and update UI acceptance
         run: python packaging/test_maintenance_workflow.py .build/maintenance-acceptance
+      - name: AI image UI acceptance
+        run: python packaging/test_ai_image_workflow.py
+      - name: Video submission reset UI acceptance
+        run: python packaging/test_image_audio_workflow.py
+      - name: Assistant learning and approval UI acceptance
+        run: python packaging/test_assistant_workflow.py
+      - name: AI image navigation responsiveness
+        run: python packaging/test_ai_image_navigation.py
       - name: Build installer
         if: github.event_name != 'pull_request'
         run: ./packaging/build_installer.ps1
@@ -82,6 +90,10 @@ jobs:
           name: windows-validation
           path: |
             .build/maintenance-acceptance/
+            output/ai-image-acceptance/
+            output/creation-reset-acceptance/
+            output/assistant-acceptance/
+            output/ai-image-navigation/
             .build/installer/installed-self-test.json
             .build/installer/voice-self-test/
             .build/installer-acceptance/report.json

@@ -12,8 +12,7 @@ from tkinter import BooleanVar, DoubleVar, StringVar, filedialog, messagebox
 import customtkinter as ctk
 
 from fish_mcp import FishAuth, FishClient
-from voice_service import create_clone, download_sample, list_voices, speech_form_settings, verify_clone
-from voice_pair_service import prepare_pair
+from voice_service import create_clone, download_sample, list_voices, prepare_speech, verify_clone
 from voice_batch import run_batch, latest_batch, resume_job, can_resume
 from voice_layout import VoiceLayout
 
@@ -74,7 +73,7 @@ class VoicePage(VoiceLayout):
         self.voice_rows, self.voice_choices = [], {}
         self.voice_selection.set("请选择音色")
         self.voice_menu.configure(values=["请选择音色"])
-        self.voice_submit_button.configure(state="normal", text="生成两个版本")
+        self.voice_submit_button.configure(state="normal", text="生成音频")
         self.voice_result_jobs = []
         self.voice_playing_result = None
         self.voice_player.stop()
@@ -161,7 +160,7 @@ class VoicePage(VoiceLayout):
         selected = self.voice_choices.get(self.voice_selection.get(), {})
         return {"text": self.voice_text.get("1.0", "end-1c").strip(), "voice_id": selected.get("id", ""),
                 "voice_name": selected.get("title", ""), "voice_description": selected.get("description", ""), "model": "drama-3",
-                "speed": round(self.voice_speed.get(), 2), "volume_db": round(self.voice_volume.get(), 1),
+                "speed": 1., "volume_db": 0.,
                 "audio_settings_mode": "fish"}
 
     def _voice_submit(self):
@@ -189,7 +188,7 @@ class VoicePage(VoiceLayout):
         config["output"] = str(Path(self.workspace_output_dir_var.get()).expanduser().resolve() / "声音合成.wav")
         def action():
             with FishClient(self.fish_auth_path, connection_id=connection) as client:
-                return prepare_pair(config, client)
+                return prepare_speech(config, client)
         self._voice_worker("quote", action, snapshot)
 
     def _voice_enqueue(self, config):
@@ -198,8 +197,9 @@ class VoicePage(VoiceLayout):
         self.voice_active_request = request_id = self.voice_submit_id
         self.voice_stop_requested.clear()
         self._voice_stop_preview()
-        self.voice_submit_button.configure(state="disabled", text="正在制作两个版本…")
-        self.voice_status.set("依次生成两个版本，完成一个就可以直接试听。")
+        self.voice_submit_button.configure(state="disabled", text="正在生成音频…")
+        self.voice_status.set("正在生成一条音频，完成后可以直接试听。")
+        self._voice_render_results([])
         credentials = self._credential_values()
         frozen = copy.deepcopy(config)
         def progress(jobs):
@@ -246,7 +246,7 @@ class VoicePage(VoiceLayout):
         if path and Path(path).is_file():
             try:
                 self.desktop_store.import_asset(path)
-                self.voice_status.set(f"版本 {'AB'[index]} 已加入素材库。")
+                self.voice_status.set("音频已加入素材库。")
             except (OSError, ValueError) as exc:
                 self.voice_status.set(str(exc))
 
@@ -278,15 +278,12 @@ class VoicePage(VoiceLayout):
             return
         self.voice_text.delete("1.0", "end")
         self.voice_text.insert("1.0", config.get("text", ""))
-        settings = speech_form_settings(config)
-        self.voice_speed.set(settings["speed"])
-        self.voice_volume.set(settings["volume_db"])
+        self._voice_reset_controls()
         self._show_page("voice")
         self._voice_select(next((v for v in self.voice_choices.values() if v["id"] == config["voice_id"]),
             {"id": config["voice_id"], "title": config.get("voice_name", "历史音色"), "description": config.get("voice_description", "")}))
         self._voice_update_char_count()
-        self.voice_status.set("已复制文案；旧版音量已换算为 dB，参数已适配当前范围，请核对后生成。"
-                              if settings["migrated"] else "已复制文案和参数；合成前会重新核对音色权限与积分。")
+        self.voice_status.set("已复制文案和音色；新任务生成一条音频，使用原速、原音量，生成前重新确认费用。")
 
     def _voice_open_clone(self):
         if self.voice_clone_dialog and self.voice_clone_dialog.winfo_exists():
@@ -450,19 +447,18 @@ class VoicePage(VoiceLayout):
                     self.voice_status.set("文案或参数已改变，请重新预估。")
                     return
                 quote = result["fish_quote"]
-                message = (f"音色：{result['voice_name']}\n同一文案生成版本 A 和版本 B\n"
-                           f"语速：{result['speed']:.2f} 倍 · 音量：{result['volume_db']:+.1f} dB\n\n"
-                           f"两个版本合计：{quote['credits']:,} 积分\n确认生成？")
+                message = (f"音色：{result['voice_name']}\n模型：Drama 3\n生成一条音频 · 原速、原音量\n\n"
+                           f"本次费用：{quote['credits']:,} 积分\n确认生成？")
                 if messagebox.askyesno("确认合成费用", message, parent=self.root):
                     result["cost_approved"] = True
                     self._voice_enqueue(result)
                     accepted = True
                 else:
-                    self.voice_status.set("已取消合成，未扣费；Fish 中保留本次草稿。")
+                    self.voice_status.set("已取消合成，未扣费。")
             finally:
                 if not accepted:
                     self.voice_busy = False
-                    self.voice_submit_button.configure(state="normal", text="生成两个版本")
+                    self.voice_submit_button.configure(state="normal", text="生成音频")
         elif kind in {"batch_progress", "batch_done"}:
             if metadata[0] != self.voice_active_request:
                 return
@@ -474,14 +470,16 @@ class VoicePage(VoiceLayout):
                 self.voice_active_request = None
                 if error:
                     self.voice_status.set(error)
-                    self.voice_submit_button.configure(state="normal", text="核对本次结果" if self.voice_pending_config else "生成两个版本")
+                    self.voice_submit_button.configure(state="normal", text="核对本次结果" if self.voice_pending_config else "生成音频")
                 else:
                     self.voice_pending_config = None
                     self.voice_submit_id = uuid.uuid4().hex
                     self.voice_not_before = time.monotonic() + 1
                     completed = sum(job.get("result", {}).get("local_downloaded") is True for job in (result or []))
-                    self.voice_status.set("两个版本已就绪，可以直接试听挑选。" if completed == 2 else f"已完成 {completed} / 2 个版本；未完成的原因显示在对应卡片中。")
-                    self.voice_submit_button.configure(state="normal", text="再生成两个版本")
+                    total = len(result or [])
+                    self.voice_status.set("音频已就绪，可以直接试听。" if completed == total and total else
+                                          f"已完成 {completed} / {total} 条音频；未完成的原因显示在结果卡片中。")
+                    self.voice_submit_button.configure(state="normal", text="再生成一条")
                 self._voice_render_results()
         elif kind == "clone":
             self.voice_clone_busy = False

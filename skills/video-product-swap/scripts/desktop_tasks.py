@@ -14,7 +14,7 @@ from pathlib import Path
 
 from model_runner.core import EXTENSIONS
 
-KINDS = {"full": "视频换品", "image_audio": "图音生视频", "speech": "声音合成", "lipsync": "换口型", "repair": "画质修复", "general": "通用创作"}
+KINDS = {"full": "视频换品", "image_audio": "图音生视频", "ai_image": "AI 生图", "image_fission": "图片裂变（旧）", "speech": "声音合成", "lipsync": "换口型", "repair": "画质修复", "general": "通用创作"}
 ACTIVE = {"queued", "running"}
 LABELS = {"queued": "等待执行", "running": "执行中", "success": "成功",
           "failed": "失败", "attention": "需要处理", "paused": "待启动", "cancelled": "已取消"}
@@ -71,6 +71,10 @@ class DesktopStore:
         self.db.execute("CREATE TABLE IF NOT EXISTS hidden_records (path TEXT PRIMARY KEY)")
         self.db.execute("CREATE TABLE IF NOT EXISTS canvases (id TEXT PRIMARY KEY, body TEXT NOT NULL)")
         self.db.execute("CREATE TABLE IF NOT EXISTS submission_requests (request_id TEXT PRIMARY KEY, job_id TEXT NOT NULL, config_hash TEXT NOT NULL)")
+        self.db.execute("CREATE TABLE IF NOT EXISTS image_sessions (id TEXT PRIMARY KEY, body TEXT NOT NULL)")
+        self.db.execute("CREATE TABLE IF NOT EXISTS image_uploads (id TEXT PRIMARY KEY, body TEXT NOT NULL)")
+        self.db.execute("CREATE TABLE IF NOT EXISTS image_workspace (id TEXT PRIMARY KEY, body TEXT NOT NULL)")
+        self.db.execute("CREATE TABLE IF NOT EXISTS image_models (id TEXT PRIMARY KEY, body TEXT NOT NULL)")
         self.db.commit()
 
     def _check_database_location(self):
@@ -113,6 +117,8 @@ class DesktopStore:
                 else "full")
         if adapter == "fish_seedance":
             kind = "image_audio"
+        elif adapter == "fish_image":
+            kind = "ai_image" if state.get("ai_image_config") else "image_fission"
         elif adapter == "fish_speech":
             kind = "speech"
         result = state.get("result", {})
@@ -120,6 +126,9 @@ class DesktopStore:
         config = {"output": state["output"]}
         if kind == "image_audio":
             config.update(state.get("image_audio_config", {}))
+        elif kind in {"ai_image", "image_fission"}:
+            config.update(state.get("ai_image_config") or state.get("image_fission_config", {}))
+            config["output"] = state["output"]
         elif kind == "speech":
             config.update(state.get("speech_config", {}))
             config["output"] = state["output"]
@@ -304,6 +313,14 @@ class DesktopStore:
             if any(j["status"] in ACTIVE for j in self.jobs()):
                 raise ValueError("任务正在准备或使用素材，请等任务结束后删除素材。")
             asset = next(a for a in self.assets() if a["id"] == identity)
+            from ai_image_store import AIImageStore
+            form = AIImageStore(self).get()
+            pending_refs = (form.get("pending_submission") or {}).get("config", {}).get("image_inputs", [])
+            if any(r.get("asset_id") == identity or r.get("path") == asset["path"]
+                   for r in [*form["references"], *pending_refs]):
+                raise ValueError("素材仍被 AI 生图表单引用，请先移除对应参考图。")
+            if any(j.get("kind") in {"ai_image", "image_fission"} and j.get("result", {}).get("asset_id") == identity for j in self.jobs()):
+                raise ValueError("图片仍被生图使用记录引用，请先删除相关记录。")
             if any(identity in j.get("asset_ids", []) or asset["path"] in input_paths(j.get("config", {}))
                    for j in self.jobs()):
                 raise ValueError("素材被使用记录引用，请先删除相关记录；删除记录不会删除成片。")
@@ -323,6 +340,10 @@ class DesktopStore:
             job = self.job(identity)
             if job["status"] in ACTIVE:
                 raise ValueError("请先等待任务结束或取消排队。")
+            from ai_image_store import AIImageStore
+            pending = AIImageStore(self).get().get("pending_submission")
+            if pending and pending["request_id"] == job.get("request_id"):
+                raise ValueError("AI 生图正在核对这次提交，请先返回生图页面确认结果。")
             for (body,) in self.db.execute("SELECT body FROM canvases"):
                 if any(node.get("data", {}).get("jobId") == identity or
                        (job.get("request_id") and node.get("data", {}).get("requestId") == job["request_id"])
@@ -386,7 +407,7 @@ class TaskManager:
                "stage": "等待执行", "asset_ids": [], "request_id": request_id}
         source = config.get("source") or config.get("video")
         job["name"] = next((a["name"] for a in self.store.assets() if a["path"] == source), job["name"])
-        if kind in {"general", "image_audio"}:
+        if kind in {"general", "image_audio", "ai_image", "image_fission"}:
             job["name"] = (config.get("prompt", "").strip().splitlines() or ["通用创作"])[0][:50]
         elif kind == "speech":
             job["name"] = (config.get("text", "").strip().splitlines() or ["声音合成"])[0][:50]
@@ -428,10 +449,10 @@ class TaskManager:
             record = json.loads(Path(record_path).read_text(encoding="utf-8")) if Path(record_path).is_file() else {}
             has_remote = any(record.get(k) for k in ("task_id", "video_url", "audio_url", "poll_url", "image_base64"))
             local_unsubmitted = job["status"] == "paused" and record.get("status") in (None, "not_submitted")
-            if job["kind"] == "speech" and job.get("config", {}).get("variant_backend") == "studio":
+            if job["kind"] == "speech" and job.get("config", {}).get("variant_backend") in {"studio", "tts"}:
                 from voice_batch import can_resume
                 has_remote = can_resume(job)
-                local_unsubmitted = False  # A prepared Studio block is not a submitted take.
+                local_unsubmitted = False  # Speech recovery must never become a fresh paid request.
             if not has_remote:
                 from feature_policy import require_creation
                 require_creation(job["kind"], job["config"])
@@ -474,7 +495,7 @@ class TaskManager:
             job = self.store.job(identity)
             result = self.execute(job, credentials, update, self.store, resume)
             update(status="success" if result.get("local_downloaded") else "attention",
-                   stage=("音频已保存" if job["kind"] == "speech" else "成片已保存") if result.get("local_downloaded") else "生成完成，待下载",
+                   stage=("音频已保存" if job["kind"] == "speech" else "图片已保存" if job["kind"] in {"ai_image", "image_fission"} else "成片已保存") if result.get("local_downloaded") else "生成完成，待下载",
                    result=result, finished=time.time(), error="")
         except Exception as exc:
             job = self.store.job(identity)
@@ -525,6 +546,14 @@ def execute_job(job, credentials, update, store, resume=False):
     from model_runner.task_state import TaskRecord
 
     config = copy.deepcopy(job["config"])
+    if job["kind"] in {"ai_image", "image_fission"}:
+        from fission_service import run_job, cache_result
+        result = run_job(job, credentials, update, resume=resume)
+        if result.get("local_downloaded"):
+            asset = store.import_asset(result["output"])
+            result = {**result, "asset_id": asset["id"], "asset_path": asset["path"]}
+            cache_result(store, result, asset)
+        return result
     if job["kind"] == "speech":
         if config.get("variant_backend") == "studio":
             from voice_pair_service import run_variant

@@ -62,6 +62,8 @@ hiddenimports = [
     "fish_mcp", "image_audio_video", "image_audio_page", "voice_service", "voice_pair_service", "voice_batch", "voice_layout", "voice_page", "voice_acceptance",
     "app_version", "personal_library", "library_transfer", "app_updates", "maintenance", "maintenance_page",
     "director_prompt", "director_page", "feature_policy", "history_sync", "asset_grid", "redesign_acceptance",
+    "fission_service", "fission_viewer", "ai_image_models", "ai_image_store", "ai_image_assistant", "ai_image_display", "ai_image_page",
+    "assistant_store", "assistant_learning", "assistant_page",
     "webview", "desktop_tray", "pystray._win32",
 ] + customtkinter_hidden + webview_hidden
 

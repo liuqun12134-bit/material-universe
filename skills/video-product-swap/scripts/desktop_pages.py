@@ -37,7 +37,7 @@ class DesktopPages:
                     if state.get("audio_url"):
                         self.tasks.recover(job["id"], credentials)
                     continue
-                if job["kind"] == "image_audio":
+                if job["kind"] in {"image_audio", "ai_image", "image_fission"}:
                     from fish_mcp import FishAuth
                     if state.get("video_url") or FishAuth(credentials.get("FISH_AUTH_PATH")).connected():
                         self.tasks.recover(job["id"], credentials)
@@ -194,7 +194,7 @@ class DesktopPages:
         rows = []
         for job in jobs:
             kind = KINDS.get(job["kind"], "旧任务")
-            if self.history_filter.get() not in ("全部功能", kind): continue
+            if self.history_filter.get() not in ("全部功能", kind) and not (self.history_filter.get() == "AI 生图" and job["kind"] == "image_fission"): continue
             if self.history_search.get().casefold() not in (job["name"] + job["id"]).casefold(): continue
             groups = {"进行中": {"running", "queued"}, "已完成": {"success"}, "需要处理": {"attention", "failed", "paused"}, "已取消": {"cancelled"}}
             if self.history_state.get() in groups and job["status"] not in groups[self.history_state.get()]: continue
@@ -253,9 +253,10 @@ class DesktopPages:
         self._refresh_asset_selection()
 
     def _cancel_asset_pick(self):
+        page = "ai_image" if self._asset_target == "ai_image" else "image_audio"
         self._asset_target = None
         self.asset_use_var.set("")
-        self._show_page("image_audio")
+        self._show_page(page)
 
     def _asset_use_changed(self, target):
         self._asset_target = target
@@ -263,6 +264,8 @@ class DesktopPages:
 
     def _asset_selection_problem(self, assets):
         if not self._asset_target: return ""
+        if self._asset_target == "ai_image":
+            return "" if assets and all(a["kind"] == "image" for a in assets) else "请选择一张或多张图片。"
         kind = "audio" if self._asset_target == "audio" else "image"
         if len(assets) != 1 or assets[0]["kind"] != kind:
             return "请选择一条音频。" if kind == "audio" else "请选择一张图片。"
@@ -280,7 +283,8 @@ class DesktopPages:
         if self._asset_target:
             from image_audio_video import FIELD_LABELS
             self.asset_help_var.set(problem or "填入后请返回创作页确认。")
-            self.asset_use_button.configure(state="disabled" if problem else "normal", text="用作" + FIELD_LABELS[self._asset_target])
+            title = "添加为参考图" if self._asset_target == "ai_image" else "用作" + FIELD_LABELS[self._asset_target]
+            self.asset_use_button.configure(state="disabled" if problem else "normal", text=title)
             self.asset_use_button.pack(side="right")
             self.asset_cancel_pick.pack(side="right", padx=6)
         else:
@@ -412,6 +416,8 @@ class DesktopPages:
         prompt.insert("1.0", (config.get("text") or "") if job["kind"] == "speech" else job.get("actual_prompt") or config.get("prompt") or "此任务没有提示词")
         prompt.configure(state="disabled")
         result = job.get("result", {})
+        if job["kind"] in {"ai_image", "image_fission", "image_audio"} and job["status"] == "success":
+            self._secondary_button(body, "给 AI 助手反馈", lambda: self._assistant_feedback(job), width=150).pack(anchor="w", pady=6)
         path = result.get("output")
         if path and Path(path).is_file():
             ctk.CTkButton(body, text="播放音频" if job["kind"] == "speech" else "查看结果", command=lambda: self._open_task_result(path)).pack(fill="x", pady=5)
@@ -445,7 +451,7 @@ class DesktopPages:
         title, command = "查看详情", self._task_detail
         path = job.get("result", {}).get("output")
         if job["status"] == "success" and path and Path(path).is_file():
-            title, command = ("播放音频" if job["kind"] == "speech" else "查看成片"), lambda: self._open_task_result(path)
+            title, command = ("播放音频" if job["kind"] == "speech" else "查看图片" if job["kind"] in {"ai_image", "image_fission"} else "查看成片"), lambda: self._open_task_result(path)
         elif job["status"] == "queued":
             title, command = "取消排队", self._cancel_selected
         elif job["status"] == "attention":
@@ -535,7 +541,7 @@ class DesktopPages:
     def _recover_selected(self):
         job = self._selected_job()
         if job:
-            if job["kind"] == "speech" and job.get("config", {}).get("variant_backend") == "studio":
+            if job["kind"] == "speech" and job.get("config", {}).get("variant_backend") in {"studio", "tts"}:
                 self._show_page("voice")
                 self._voice_resume_job_id(job["id"])
                 return
@@ -565,6 +571,8 @@ class DesktopPages:
             messagebox.showinfo("功能已下线", "历史任务保留查看、查询与下载，不再创建同类新任务。", parent=self.root)
         elif job["kind"] == "image_audio":
             self._fish_reuse(job["config"])
+        elif job["kind"] in {"ai_image", "image_fission"}:
+            self._ai_reuse_config(job["config"])
         elif job["kind"] == "speech":
             self._voice_reuse(job["config"])
             self._show_page("voice")
@@ -573,7 +581,7 @@ class DesktopPages:
 
     def _open_library(self, target):
         from image_audio_video import MEDIA_FIELDS
-        if target not in MEDIA_FIELDS: return
+        if target not in MEDIA_FIELDS and target != "ai_image": return
         self._asset_target = target
         self.asset_use_var.set(target)
         self.asset_tree.selection_remove(*self.asset_tree.selection())
@@ -608,6 +616,12 @@ class DesktopPages:
     def _use_assets(self):
         assets = self._selected_assets()
         if not self._asset_target or self._asset_selection_problem(assets): return
+        if self._asset_target == "ai_image":
+            self._ai_add_paths([a["path"] for a in assets])
+            self._asset_target = None
+            self.asset_use_var.set("")
+            self._show_page("ai_image")
+            return
         self._fish_load(self._asset_target, assets[0]["path"])
         self._asset_target = None
         self.asset_use_var.set("")

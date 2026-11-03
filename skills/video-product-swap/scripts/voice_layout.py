@@ -192,40 +192,21 @@ class VoiceLayout:
         self.voice_text._textbox.bind("<<Modified>>", text_changed, add="+")
         settings = ctk.CTkFrame(editor, fg_color="transparent")
         settings.grid(row=4, column=0, sticky="ew", padx=20, pady=(0, 8))
-        settings.grid_columnconfigure((0, 1), weight=1, uniform="sound_controls")
         self.voice_control_sliders = {}
-        for col, (name, variable, low, high, steps, unit) in enumerate((("语速", self.voice_speed, .7, 1.3, 60, "倍"), ("音量", self.voice_volume, -5., 5., 20, "dB"))):
-            group = ctk.CTkFrame(settings, fg_color="#F7F9FD", corner_radius=9)
-            group.grid(row=0, column=col, sticky="ew", padx=(0, 6) if col == 0 else (6, 0))
-            labelrow = ctk.CTkFrame(group, fg_color="transparent")
-            labelrow.pack(fill="x", padx=11, pady=(8, 0))
-            ctk.CTkLabel(labelrow, text=name, text_color=MUTED, font=("Microsoft YaHei UI", 11)).pack(side="left")
-            value = StringVar()
-            def update(*_, var=variable, label=value, suffix=unit):
-                label.set(f"{var.get():.2f} 倍" if suffix == "倍" else f"{var.get():+.1f} dB")
-            variable.trace_add("write", update)
-            update()
-            ctk.CTkLabel(labelrow, textvariable=value, text_color=INK, font=("Segoe UI", 12, "bold")).pack(side="right")
-            slider = ctk.CTkSlider(group, from_=low, to=high, number_of_steps=steps, variable=variable,
-                width=120, height=16, button_length=13, button_color=BLUE, progress_color=BLUE,
-                fg_color="#DEE5F0")
-            slider.pack(fill="x", padx=10, pady=(5, 12))
-            self.voice_control_sliders[name] = slider
-        bottom = ctk.CTkFrame(editor, fg_color="transparent")
-        bottom.grid(row=5, column=0, sticky="ew", padx=20, pady=(0, 10))
-        ctk.CTkLabel(bottom, text="同一文案 · 两种演绎", text_color=MUTED, font=("Microsoft YaHei UI", 11)).pack(side="left")
-        self._voice_button(bottom, "恢复默认", self._voice_reset_controls, width=75, height=27).pack(side="right")
-        self.voice_submit_button = self._voice_button(editor, "生成两个版本", self._voice_submit, primary=True, height=42)
+        ctk.CTkLabel(settings, text="每次生成一条 · 原速、原音量", text_color=MUTED,
+            font=("Microsoft YaHei UI", 11)).pack(anchor="w")
+        self.voice_submit_button = self._voice_button(editor, "生成音频", self._voice_submit, primary=True, height=42)
         self.voice_submit_button.grid(row=6, column=0, sticky="ew", padx=20, pady=(0, 8))
-        ctk.CTkLabel(editor, text="预估会在 Fish 创建草稿；确认费用后生成两个版本。", text_color=MUTED, wraplength=390,
+        ctk.CTkLabel(editor, text="先预估费用，确认后生成；完成后可试听、保存或加入素材库。", text_color=MUTED, wraplength=390,
             justify="left", font=("Microsoft YaHei UI", 10)).grid(row=7, column=0, sticky="w", padx=20, pady=(0, 15))
         results = ctk.CTkFrame(panel, fg_color="transparent")
         results.grid(row=0, column=1, sticky="nsew")
         results.grid_columnconfigure(0, weight=1)
-        results.grid_rowconfigure((1, 2), weight=1, uniform="takes")
+        self.voice_results_panel = results
+        results.grid_rowconfigure(1, weight=1, uniform="takes")
         title = ctk.CTkFrame(results, fg_color="transparent")
         title.grid(row=0, column=0, sticky="ew", pady=(0, 10))
-        ctk.CTkLabel(title, text="挑选你喜欢的版本", text_color=INK, font=("Microsoft YaHei UI", 15, "bold")).pack(side="left")
+        ctk.CTkLabel(title, text="生成结果", text_color=INK, font=("Microsoft YaHei UI", 15, "bold")).pack(side="left")
         self._voice_button(title, "历史", lambda: self._show_page("history"), width=50, height=28).pack(side="right")
         self.voice_result_widgets = []
         for index in range(2):
@@ -235,7 +216,8 @@ class VoiceLayout:
             card.grid_rowconfigure(2, weight=1)
             top = ctk.CTkFrame(card, fg_color="transparent")
             top.grid(row=0, column=0, sticky="ew", padx=16, pady=(14, 7))
-            ctk.CTkLabel(top, text=f"版本 {'AB'[index]}", text_color=INK, font=("Microsoft YaHei UI", 15, "bold")).pack(side="left")
+            result_title = ctk.CTkLabel(top, text="合成音频", text_color=INK, font=("Microsoft YaHei UI", 15, "bold"))
+            result_title.pack(side="left")
             state = ctk.CTkLabel(top, text="待生成", text_color=MUTED, fg_color="#F1F4F9", corner_radius=6,
                 width=66, height=25, font=("Microsoft YaHei UI", 10))
             state.pack(side="right")
@@ -258,7 +240,8 @@ class VoiceLayout:
             library.pack(side="left")
             recover = self._voice_button(actions, "继续获取", lambda i=index: self._voice_resume_result(i), width=80, height=29)
             recover.pack(side="right")
-            self.voice_result_widgets.append(dict(state=state, note=note, play=play, duration=duration, save=save, library=library, recover=recover))
+            self.voice_result_widgets.append(dict(card=card, title=result_title, state=state, note=note, play=play,
+                                                 duration=duration, save=save, library=library, recover=recover))
         self._voice_render_results()
 
     def _voice_choose_tab(self, name):
@@ -280,7 +263,14 @@ class VoiceLayout:
         from voice_batch import can_resume
         if jobs is not None:
             self.voice_result_jobs = list(jobs)
+        legacy_pair = any(j.get("variant_index") == 2 for j in self.voice_result_jobs)
+        self.voice_results_panel.grid_rowconfigure(2, weight=1 if legacy_pair else 0)
         for index, widgets in enumerate(self.voice_result_widgets):
+            if index == 1 and not legacy_pair:
+                widgets["card"].grid_remove()
+            else:
+                widgets["card"].grid()
+            widgets["title"].configure(text=f"版本 {'AB'[index]}" if legacy_pair else "合成音频")
             job = next((j for j in self.voice_result_jobs if j.get("variant_index") == index + 1), {})
             result, config = job.get("result", {}), job.get("config", {})
             path = result.get("output")

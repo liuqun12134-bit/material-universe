@@ -9,22 +9,36 @@ import customtkinter as ctk
 from director_prompt import MODES, configuration, generate
 from image_audio_video import MEDIA_FIELDS
 
+DEFAULT_MODE = "请选择导演模式"
+DEFAULT_NOTE = "先选择模式；音频由 Fish 自动转写，图片与台词交给 Kaiyun GPT-6.1 Sol 编排。"
+
 
 class DirectorPage:
     def _init_director(self):
         self.director_busy = False
-        self.director_mode = StringVar(value="请选择导演模式")
-        self.director_note = StringVar(value="先选择模式；音频由 Fish 自动转写，图片与台词交给 Kaiyun GPT-6.1 Sol 编排。")
+        self.director_mode = StringVar(value=DEFAULT_MODE)
+        self.director_note = StringVar(value=DEFAULT_NOTE)
         self.director_result = None
         self.director_undo = None
 
+    def _reset_director(self):
+        self.director_mode.set(DEFAULT_MODE)
+        self.director_note.set(DEFAULT_NOTE)
+        self.director_requirements.delete(0, "end")
+        self.director_result = self.director_undo = None
+        self.director_generate_button.configure(state="disabled", text="生成提示词")
+        self.director_undo_button.configure(state="disabled")
+        self.director_view_button.configure(state="disabled")
+        self.director_panel.pack_forget()
+
     def _build_director_controls(self, card, content):
         header = card.winfo_children()[0]
-        self._secondary_button(header, "✦ 智能提示词", self._toggle_director, width=125).place(relx=1, x=0, y=0, anchor="ne")
+        self.director_toggle_button = self._secondary_button(header, "AI 导演", self._toggle_director, width=108)
+        self.director_toggle_button.place(relx=1, x=0, y=0, anchor="ne")
         self.director_panel = ctk.CTkFrame(content, fg_color="#F5F7FA", corner_radius=12)
         row = ctk.CTkFrame(self.director_panel, fg_color="transparent")
         row.pack(fill="x", padx=12, pady=(12, 8))
-        ctk.CTkOptionMenu(row, variable=self.director_mode, values=["请选择导演模式", *MODES],
+        ctk.CTkOptionMenu(row, variable=self.director_mode, values=[DEFAULT_MODE, *MODES],
             width=155, command=lambda _: self.director_generate_button.configure(state="normal" if self.director_mode.get() in MODES and not self.director_busy else "disabled")).pack(side="left")
         self.director_generate_button = ctk.CTkButton(row, text="生成提示词", width=110, state="disabled", command=self._generate_director)
         self.director_generate_button.pack(side="right")

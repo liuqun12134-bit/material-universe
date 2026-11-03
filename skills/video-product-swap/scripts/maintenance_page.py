@@ -42,7 +42,7 @@ class MaintenancePage:
 
     def _maintenance_idle(self):
         busy = (self.tasks.active or self.tasks.pending or getattr(self.tasks, "refreshing", set())
-                or any(getattr(self, name, False) for name in ("voice_busy", "voice_clone_busy", "director_busy", "fish_busy", "fish_login_busy", "running")))
+                or any(getattr(self, name, False) for name in ("_assistant_busy", "voice_busy", "voice_clone_busy", "director_busy", "fish_busy", "fish_login_busy", "ai_image_busy", "ai_model_busy", "running")))
         if busy:
             messagebox.showinfo("请等待当前任务", "请等生成、上传或查询结束后再迁移或安装更新。素材和任务记录会保留。", parent=self.root)
             return False
@@ -107,7 +107,7 @@ class MaintenancePage:
         selected = filedialog.askdirectory(parent=self.root, title="选择含 demo-library / experience-library 的 Skill 目录")
         if not selected:
             return
-        if not any((Path(selected) / name).is_dir() for name in ("demo-library", "experience-library", "learning")):
+        if not any((Path(selected) / name).is_dir() for name in ("demo-library", "experience-library", "learning", "assistant-knowledge")):
             messagebox.showerror("没有找到库", "请选择含案例库或经验库的 Skill 目录。", parent=self.root); return
         include_learning = messagebox.askyesno("个人学习记录", "是否同时复制此 Skill 在本机保存的自优化记录？\n原 Skill 和原记录都会保留。", parent=self.root)
         self._prepare_library_import(lambda: self.library_transfer.import_skill_directory(selected, include_learning=include_learning))

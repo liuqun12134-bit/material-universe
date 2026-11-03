@@ -65,6 +65,8 @@ def skill_files(root):
         if path.is_symlink() or not path.resolve().is_relative_to(root.resolve()):
             raise ValueError("学习记录位置无效。")
         files[relative] = path
+    from assistant_store import portable_files
+    files.update(portable_files(root))
     return files
 
 

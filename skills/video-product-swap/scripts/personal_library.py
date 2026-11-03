@@ -179,6 +179,8 @@ def merge(source, destination):
             atomic_json(target, state)
             stats["learning_added"] += 1
     reindex(destination)
+    from assistant_store import merge_knowledge
+    stats["learning_added"] += merge_knowledge(source, destination)
     return stats
 
 

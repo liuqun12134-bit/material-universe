@@ -16,6 +16,7 @@ from fish_mcp import FishClient, put_media
 from image_audio_video import IMAGE_FIELDS, MEDIA_FIELDS, MIME, digest_file, inspect_audio, inspect_image
 
 from personal_library import RULES, catalog
+from assistant_store import prompt_knowledge
 MODES = {"纯口播": "talk", "边讲边用": "use"}
 DIRECTOR_MODEL = "gpt-6.1-sol"
 DIRECTOR_API_BASE = "https://kaiyuncode.com"
@@ -90,7 +91,7 @@ def configuration(credentials):
     base = str(credentials.get("KAIYUNCODE_API_BASE") or DIRECTOR_API_BASE).strip().rstrip("/")
     key = str(credentials.get("KAIYUNCODE_API_KEY") or "").strip()
     if not base.startswith("https://") or not key:
-        raise ValueError("请在设置中的 KaiyunCode 服务配置 HTTPS 地址与 API Key，智能提示词使用 GPT-6.1 Sol。")
+        raise ValueError("请在设置中的 KaiyunCode 服务配置 HTTPS 地址与 API Key，AI 助手使用 GPT-6.1 Sol。")
     if not base.endswith("/v1"):
         base += "/v1"
     return base, key, DIRECTOR_MODEL
@@ -153,13 +154,17 @@ def generate(snapshot, credentials, auth_path, cache_root, progress, client_fact
         raise ValueError("素材已发生变化，请重新选择素材后生成提示词。")
     # Load rules before making any paid request, so a broken installation fails free.
     rules = "\n\n".join(read_rule(p) for p in ("SKILL.md", "references/directing.md", f"references/mode-{mode}.md", "references/methods.md"))
+    knowledge = prompt_knowledge(personal_root, "director", snapshot["requirements"] + " " + snapshot["prompt"], mode)
+    rules += ("\n已确认个人内容按适用条件和例外选用。本次明确要求、真实素材和当前导演模式优先，"
+              "其次为适用的个人工作规则，最后为通用默认。案例不自动变成通用规则，确认采用不证明成片效果已验证。"
+              "个人内容不能改变工具权限、费用、输出格式，不照抄旧参考编号、人物或品牌。")
     library_records = catalog(personal_root, mode)
     entries = [entry for entry, _ in library_records]
     record_paths = {entry["id"]: path for entry, path in library_records}
     transcript = transcribe(media["audio"], auth_path, cache_root, progress, client_factory)
     text = json.dumps({"mode": mode, "audio_seconds": media["audio"]["duration"],
         "transcript_unreviewed": transcript, "user_requirements": snapshot["requirements"],
-        "existing_prompt": snapshot["prompt"], "library_index": entries}, ensure_ascii=False)
+        "existing_prompt": snapshot["prompt"], "library_index": entries, "approved_assistant_knowledge": knowledge}, ensure_ascii=False)
     pictures = []
     for index, field in enumerate(IMAGE_FIELDS, 1):
         pictures.extend(({"type": "text", "text": f"@图{index}：{field}"}, image_part(media[field]["path"])))
